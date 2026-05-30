@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZELIX ID Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@700;800;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          inter: ['Inter', 'sans-serif'],
+          orbitron: ['Orbitron', 'sans-serif'],
+          rajdhani: ['Rajdhani', 'sans-serif']
+        },
+        colors: {
+          gold: '#ffb300',
+          purple: '#8a2eff',
+          blue: '#00c8ff'
+        },
+        boxShadow: {
+          gold: '0 0 22px rgba(255,179,0,.45)',
+          blue: '0 0 28px rgba(0,200,255,.32)',
+          purple: '0 0 38px rgba(138,46,255,.28)'
+        },
+        keyframes: {
+          float: {
+            '0%,100%': { transform: 'translateY(0)' },
+            '50%': { transform: 'translateY(-12px)' }
+          },
+          rise: {
+            '0%': { opacity: '0', transform: 'translateY(14px)' },
+            '100%': { opacity: '1', transform: 'translateY(0)' }
+          }
+        },
+        animation: {
+          float: 'float 5s ease-in-out infinite',
+          rise: 'rise .35s ease both'
+        }
+      }
+    }
+  }
+</script>
+<style>
+  body { font-family: Inter, sans-serif; background:#050505; color:white; min-height:100vh; overflow-x:hidden; }
+  .grid-bg { background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px); background-size:48px 48px; }
+  .glass { background:linear-gradient(180deg,rgba(18,18,30,.82),rgba(7,7,12,.82)); border:1px solid rgba(255,255,255,.11); backdrop-filter:blur(18px); }
+  .field input:focus + label,
+  .field input:not(:placeholder-shown) + label { transform:translateY(-31px) scale(.86); color:#00c8ff; background:rgba(8,8,14,.96); padding:0 8px; }
+  .field label { transition:.22s ease; pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+function Logo(){
+  return <div className="flex items-center gap-3">
+    <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-yellow-200 via-gold to-orange-500 shadow-gold">
+      <img className="h-[145%] w-[145%] object-cover drop-shadow-[0_0_10px_rgba(255,179,0,.55)]" src="assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"/>
+    </div>
+    <div>
+      <div className="font-orbitron text-xl font-black tracking-[.18em] text-gold">ZELIX ID</div>
+      <div className="font-rajdhani text-xs font-bold tracking-[.28em] text-white/45">GAMING ACCESS</div>
+    </div>
+  </div>
+}
+
+function Field({ label, name, type='text', value, onChange, error }){
+  const [show, setShow] = useState(false);
+  const pass = type === 'password';
+  const icons = {
+    identifier:'👤', username:'🎮', firstName:'✨', lastName:'⚡', email:'✉️', password:'🔒', confirmPassword:'🛡'
+  };
+  return <div className="animate-rise space-y-2">
+    <div className={`field group relative rounded-2xl border bg-black/35 transition hover:border-gold/30 hover:bg-white/[.045] ${error ? 'border-red-400 shadow-[0_0_0_3px_rgba(248,113,113,.13)]' : 'border-white/10 focus-within:border-blue focus-within:shadow-[0_0_0_3px_rgba(0,200,255,.12),0_0_24px_rgba(0,200,255,.15)]'}`}>
+      <span className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-lg opacity-70 transition group-focus-within:scale-110 group-focus-within:opacity-100">{icons[name] || '◆'}</span>
+      <input className="h-16 w-full rounded-2xl bg-transparent pl-12 pr-14 pt-3 text-sm font-semibold outline-none placeholder:text-transparent" placeholder=" " name={name} type={pass && show ? 'text' : type} value={value} onChange={onChange}/>
+      <label className="absolute left-12 top-1/2 -translate-y-1/2 rounded-lg text-sm font-bold text-white/48">{label}</label>
+      {pass && <button type="button" onClick={()=>setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl px-2 py-1 text-xs font-black text-gold hover:bg-white/10">{show ? 'HIDE' : 'SHOW'}</button>}
+    </div>
+    {error && <div className="text-xs font-bold text-red-300">{error}</div>}
+  </div>
+}
+
+function Check({ checked, onChange, label }){
+  return <label className="flex cursor-pointer items-start gap-4 rounded-2xl border border-white/10 bg-white/[.045] p-4 text-sm font-semibold text-white/70 transition hover:border-gold/30 hover:bg-gold/10 hover:text-white">
+    <input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)} className="mt-1 h-5 w-5 accent-[#ffb300]"/>
+    <span className="leading-6">{label}</span>
+  </label>
+}
+
+function Marketing(){
+  const features = [
+    ['🛡','Secure Access','Hash-lənmiş şifrələr və token əsaslı sessiya.'],
+    ['⚡','Fast Top-Up Flow','Sürətli oyun balansı və sifariş axını.'],
+    ['🎮','Esports Identity','Premium gaming marketplace təcrübəsi.']
+  ];
+  return <section className="relative hidden min-h-[720px] overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_22%_10%,rgba(138,46,255,.38),transparent_30%),radial-gradient(circle_at_80%_30%,rgba(0,200,255,.24),transparent_32%),linear-gradient(135deg,rgba(16,9,43,.92),rgba(5,5,5,.95))] p-9 shadow-[0_30px_100px_rgba(0,0,0,.62)] lg:block">
+    <div className="absolute inset-0 grid-bg opacity-25"></div>
+    <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-blue/20 blur-3xl animate-float"></div>
+    <div className="relative z-10"><Logo/></div>
+    <div className="relative z-10 mt-24 max-w-xl">
+      <div className="mb-4 inline-flex rounded-full border border-gold/25 bg-gold/10 px-4 py-2 font-rajdhani text-xs font-black tracking-[.2em] text-gold shadow-gold">PREMIUM TOP-UP AUTH</div>
+      <h1 className="font-orbitron text-6xl font-black leading-[.92]">OYUNÇU <span className="block text-gold drop-shadow-[0_0_24px_rgba(255,179,0,.45)]">HESABINI</span> QORU</h1>
+      <p className="mt-6 max-w-lg text-lg leading-8 text-white/62">ZELIX TOPUP üçün hesab yarat, sifarişlərini idarə et və balans əməliyyatlarını təhlükəsiz gaming paneldən izlə.</p>
+    </div>
+    <div className="relative z-10 mt-10 grid gap-4">
+      {features.map(item => <div key={item[1]} className="glass rounded-3xl p-5 transition hover:-translate-y-1 hover:border-gold/30 hover:shadow-gold">
+        <div className="flex gap-4">
+          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gold/10 text-xl shadow-gold">{item[0]}</div>
+          <div><div className="font-rajdhani text-xl font-black">{item[1]}</div><div className="mt-1 text-sm leading-6 text-white/55">{item[2]}</div></div>
+        </div>
+      </div>)}
+    </div>
+    <div className="absolute bottom-8 right-8 font-orbitron text-[11rem] font-black leading-none text-white/[.035]">Z</div>
+  </section>
+}
+
+function Auth(){
+  const [mode, setMode] = useState('login');
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [remember, setRemember] = useState(true);
+  const [terms, setTerms] = useState(false);
+  const [form, setForm] = useState({ identifier:'', username:'', firstName:'', lastName:'', email:'', password:'', confirmPassword:'' });
+  const [err, setErr] = useState({});
+
+  function update(e){ setForm({...form, [e.target.name]: e.target.value}); setErr({...err, [e.target.name]: ''}); }
+  function validate(){
+    const e = {};
+    if(mode === 'login'){
+      if(!form.identifier.trim()) e.identifier = 'Username və ya email daxil edin.';
+      if(!form.password) e.password = 'Şifrə daxil edin.';
+    } else {
+      if(!/^[a-z0-9_]{3,24}$/.test(form.username.trim().toLowerCase())) e.username = '3-24 simvol: hərf, rəqəm, _';
+      if(form.firstName.trim().length < 2) e.firstName = 'Ad ən az 2 simvol.';
+      if(form.lastName.trim().length < 2) e.lastName = 'Soyad ən az 2 simvol.';
+      if(!/^\S+@\S+\.\S+$/.test(form.email.trim())) e.email = 'Düzgün email daxil edin.';
+      if(form.password.length < 6) e.password = 'Minimum 6 simvol.';
+      if(form.password !== form.confirmPassword) e.confirmPassword = 'Şifrələr uyğun deyil.';
+      if(!terms) e.terms = 'Üzvlük müqaviləsi və məlumatlandırma mətnini qəbul etməlisiniz.';
+    }
+    setErr(e);
+    return Object.keys(e).length === 0;
+  }
+  async function submit(ev){
+    ev.preventDefault();
+    if(!validate()) return;
+    setLoading(true);
+    setMsg({ type:'info', text: mode === 'login' ? 'Giriş yoxlanılır...' : 'Hesab yaradılır...' });
+    try {
+      const body = mode === 'login' ? { identifier: form.identifier, password: form.password, remember } : { ...form, username: form.username.toLowerCase(), terms };
+      const response = await fetch(mode === 'login' ? '/api/login' : '/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+      const data = await response.json();
+      if(!response.ok) throw Error(data.message || 'Əməliyyat uğursuz oldu.');
+      localStorage.setItem('zelixToken', data.token);
+      localStorage.setItem('zelixUser', JSON.stringify(data.user));
+      setMsg({ type:'ok', text:data.message + ' Ana səhifəyə yönləndirilirsiniz...' });
+      setTimeout(()=>location.href='/', 850);
+    } catch(error){
+      setMsg({ type:'bad', text:error.message });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return <section className="glass relative overflow-hidden rounded-[2rem] p-5 shadow-[0_30px_90px_rgba(0,0,0,.58)] sm:p-7">
+    <div className="absolute -right-20 -top-20 h-52 w-52 rounded-full bg-purple/25 blur-3xl"></div>
+    <div className="relative z-10 mb-7 flex items-center justify-between"><a href="/" className="font-rajdhani text-sm font-black tracking-[.18em] text-blue hover:text-white">← HOME</a><Logo/></div>
+    <h2 className="relative z-10 font-orbitron text-3xl font-black text-gold">{mode === 'login' ? 'Welcome Back' : 'Create Account'}</h2>
+    <p className="relative z-10 mt-2 text-sm leading-6 text-white/55">{mode === 'login' ? 'ZELIX hesabına daxil ol.' : 'Premium gaming marketplace hesabını yarat.'}</p>
+    <div className="relative z-10 my-6 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/30 p-1">
+      {['login','register'].map(tab => <button key={tab} onClick={()=>{setMode(tab); setErr({}); setMsg(null);}} className={`rounded-xl py-3 font-rajdhani text-base font-black transition ${mode === tab ? 'bg-gradient-to-r from-yellow-200 via-gold to-orange-500 text-black shadow-gold' : 'text-white/55 hover:bg-white/5 hover:text-white'}`}>{tab === 'login' ? 'Login' : 'Register'}</button>)}
+    </div>
+    <form onSubmit={submit} className="relative z-10 space-y-5">
+      {mode === 'login' ? <>
+        <Field label="Username or Email" name="identifier" value={form.identifier} onChange={update} error={err.identifier}/>
+        <Field label="Password" name="password" type="password" value={form.password} onChange={update} error={err.password}/>
+        <div className="flex items-center justify-between gap-4"><Check checked={remember} onChange={setRemember} label="Remember me"/><button type="button" onClick={()=>setMsg({type:'info', text:'Forgot password endpoint sonra əlavə edilə bilər.'})} className="text-sm font-bold text-gold hover:text-white">Forgot password?</button></div>
+      </> : <>
+        <Field label="Username" name="username" value={form.username} onChange={update} error={err.username}/>
+        <div className="grid gap-5 sm:grid-cols-2"><Field label="First Name" name="firstName" value={form.firstName} onChange={update} error={err.firstName}/><Field label="Last Name" name="lastName" value={form.lastName} onChange={update} error={err.lastName}/></div>
+        <Field label="Email" name="email" type="email" value={form.email} onChange={update} error={err.email}/>
+        <div className="grid gap-5 sm:grid-cols-2"><Field label="Password" name="password" type="password" value={form.password} onChange={update} error={err.password}/><Field label="Confirm Password" name="confirmPassword" type="password" value={form.confirmPassword} onChange={update} error={err.confirmPassword}/></div>
+        <div>
+          <Check checked={terms} onChange={setTerms} label="Üzvlük müqaviləsi və məlumatlandırma mətnini oxudum, qəbul edirəm"/>
+          <div className="mt-3 rounded-2xl border border-blue/20 bg-blue/10 p-3 text-xs font-semibold leading-5 text-white/58">Məlumatlandırma: Hesab məlumatlarınız sifarişlərin izlənməsi, balans əməliyyatları və təhlükəsiz giriş üçün istifadə olunur. Qutu işarələnmədən qeydiyyat tamamlanmayacaq.</div>
+          {err.terms && <div className="mt-2 text-xs font-bold text-red-300">{err.terms}</div>}
+        </div>
+      </>}
+      <button disabled={loading} className="h-14 w-full rounded-2xl bg-gradient-to-r from-yellow-200 via-gold to-orange-500 font-orbitron text-sm font-black tracking-[.14em] text-black shadow-gold transition hover:-translate-y-0.5 disabled:opacity-70">{loading ? 'PROCESSING...' : mode === 'login' ? 'LOGIN' : 'CREATE ZELIX ID'}</button>
+      {msg && <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${msg.type === 'bad' ? 'border-red-400/30 bg-red-500/10 text-red-200' : msg.type === 'ok' ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-blue/30 bg-blue/10 text-blue'}`}>{msg.text}</div>}
+    </form>
+  </section>
+}
+
+function App(){
+  return <main className="relative min-h-screen overflow-hidden bg-[#050505] px-4 py-6 text-white sm:px-6 lg:px-8">
+    <div className="absolute inset-0 grid-bg opacity-20"></div>
+    <div className="absolute left-[-12rem] top-[-10rem] h-[32rem] w-[32rem] rounded-full bg-purple/25 blur-3xl"></div>
+    <div className="absolute bottom-[-12rem] right-[-10rem] h-[34rem] w-[34rem] rounded-full bg-gold/15 blur-3xl"></div>
+    <div className="relative z-10 mx-auto grid min-h-[calc(100vh-3rem)] w-full max-w-7xl items-center gap-7 lg:grid-cols-[1.08fr_.92fr]"><Marketing/><Auth/></div>
+  </main>
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
