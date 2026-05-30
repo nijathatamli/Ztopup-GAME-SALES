@@ -1,0 +1,21 @@
+{
+  "name": "zelix-topup",
+  "version": "1.0.0",
+  "description": "ZELIX TOPUP gaming top-up marketplace with login and registration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "mysql2": "^3.11.5"
+  },
+  "keywords": [
+    "zelix",
+    "topup",
+    "gaming",
+    "auth"
+  ],
+  "author": "",
+  "license": "MIT"
+}

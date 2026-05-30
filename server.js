@@ -1,0 +1,628 @@
+const http = require('http');
+const fs = require('fs/promises');
+const path = require('path');
+const crypto = require('crypto');
+require('dotenv').config();
+const mysql = require('mysql2/promise');
+
+const PORT = process.env.PORT || 8091;
+const ROOT = __dirname;
+const sessions = new Map();
+
+// Global database mode
+let isJsonMode = false;
+let usersDb = { users: [] };
+
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  port: Number(process.env.DB_PORT || 3306),
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'zelix_topup',
+  waitForConnections: true,
+  connectionLimit: 10
+});
+
+const mimeTypes = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml'
+};
+
+function sendJson(response, statusCode, payload) {
+  response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+  response.end(JSON.stringify(payload));
+}
+
+function readRequestBody(request) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    request.on('data', chunk => {
+      body += chunk;
+      if (body.length > 1_000_000) {
+        request.destroy();
+        reject(new Error('Request body is too large'));
+      }
+    });
+    request.on('end', () => resolve(body));
+    request.on('error', reject);
+  });
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, storedPassword) {
+  const [salt, originalHash] = storedPassword.split(':');
+  const hash = crypto.scryptSync(password, salt, 64);
+  const original = Buffer.from(originalHash, 'hex');
+  return original.length === hash.length && crypto.timingSafeEqual(original, hash);
+}
+
+function getAuthToken(request) {
+  const auth = request.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) return auth.slice(7);
+  return null;
+}
+
+function sanitizeUser(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    firstName: user.first_name,
+    lastName: user.last_name,
+    email: user.email,
+    balance: Number(user.balance || 0),
+    createdAt: user.created_at
+  };
+}
+
+// ==========================================
+// DYNAMIC DATABASE ABSTRACTION LAYER (MYSQL & JSON)
+// ==========================================
+
+async function saveJsonDb() {
+  await fs.writeFile(path.join(ROOT, 'data', 'users.json'), JSON.stringify(usersDb, null, 2));
+}
+
+async function dbFindUserById(id) {
+  if (isJsonMode) {
+    const user = usersDb.users.find(u => u.id === id);
+    if (!user) return null;
+    return {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      first_name: user.first_name || user.firstName,
+      last_name: user.last_name || user.lastName,
+      email: user.email,
+      password_hash: user.password_hash || user.password,
+      balance: Number(user.balance || 0),
+      created_at: user.created_at || user.createdAt
+    };
+  } else {
+    const [rows] = await pool.execute('SELECT * FROM users WHERE id = ? LIMIT 1', [id]);
+    return rows[0] || null;
+  }
+}
+
+async function dbFindUserByIdentifier(identifier) {
+  if (isJsonMode) {
+    const user = usersDb.users.find(u => u.email === identifier || u.username === identifier);
+    if (!user) return null;
+    return {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      first_name: user.first_name || user.firstName,
+      last_name: user.last_name || user.lastName,
+      email: user.email,
+      password_hash: user.password_hash || user.password,
+      balance: Number(user.balance || 0),
+      created_at: user.created_at || user.createdAt
+    };
+  } else {
+    const [rows] = await pool.execute('SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1', [identifier]);
+    return rows[0] || null;
+  }
+}
+
+async function dbCheckUserExists(email, username) {
+  if (isJsonMode) {
+    return usersDb.users.some(u => u.email === email || u.username === username);
+  } else {
+    const [rows] = await pool.execute('SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1', [email, username]);
+    return rows.length > 0;
+  }
+}
+
+async function dbCheckUserExistsExclude(email, username, excludeId) {
+  if (isJsonMode) {
+    return usersDb.users.some(u => (u.email === email || u.username === username) && u.id !== excludeId);
+  } else {
+    const [rows] = await pool.execute('SELECT id FROM users WHERE (email = ? OR username = ?) AND id <> ? LIMIT 1', [email, username, excludeId]);
+    return rows.length > 0;
+  }
+}
+
+async function dbInsertUser(user) {
+  if (isJsonMode) {
+    usersDb.users.push({
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email,
+      password_hash: user.password_hash,
+      balance: Number(user.balance || 0),
+      created_at: user.created_at
+    });
+    await saveJsonDb();
+  } else {
+    await pool.execute(
+      'INSERT INTO users (id, username, name, first_name, last_name, email, password_hash, balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [user.id, user.username, user.name, user.first_name, user.last_name, user.email, user.password_hash, user.balance]
+    );
+  }
+}
+
+async function dbUpdateProfile(id, username, name, firstName, lastName, email) {
+  if (isJsonMode) {
+    const user = usersDb.users.find(u => u.id === id);
+    if (user) {
+      user.username = username;
+      user.name = name;
+      user.first_name = firstName;
+      user.last_name = lastName;
+      user.firstName = firstName; // for cross-compat
+      user.lastName = lastName;
+      user.email = email;
+      await saveJsonDb();
+    }
+  } else {
+    await pool.execute(
+      'UPDATE users SET username = ?, name = ?, first_name = ?, last_name = ?, email = ? WHERE id = ?',
+      [username, name, firstName, lastName, email, id]
+    );
+  }
+}
+
+async function dbUpdateBalance(id, amount) {
+  if (isJsonMode) {
+    const user = usersDb.users.find(u => u.id === id);
+    if (user) {
+      user.balance = Number(user.balance || 0) + amount;
+      await saveJsonDb();
+    }
+  } else {
+    await pool.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, id]);
+  }
+}
+
+async function dbUpdatePassword(id, passwordHash) {
+  if (isJsonMode) {
+    const user = usersDb.users.find(u => u.id === id);
+    if (user) {
+      user.password_hash = passwordHash;
+      user.password = passwordHash;
+      await saveJsonDb();
+    }
+  } else {
+    await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, id]);
+  }
+}
+
+// ==========================================
+// ROUTE LOGIC
+// ==========================================
+
+async function requireUser(request, response) {
+  const token = getAuthToken(request);
+  const userId = sessions.get(token);
+  if (!userId) {
+    sendJson(response, 401, { message: 'Sessiya aktiv deyil. Zəhmət olmasa daxil olun.' });
+    return null;
+  }
+
+  const user = await dbFindUserById(userId);
+  if (!user) {
+    sendJson(response, 401, { message: 'İstifadəçi tapılmadı.' });
+    return null;
+  }
+  return user;
+}
+
+function buildProfile(user) {
+  const safeUser = sanitizeUser(user);
+  return {
+    user: safeUser,
+    profile: {
+      username: safeUser.username || 'ZelixPlayer',
+      firstName: safeUser.firstName || 'Elvin',
+      lastName: safeUser.lastName || 'Əliyev',
+      email: safeUser.email || 'elvin.aliyev@example.com',
+      phone: '+994 50 123 45 67',
+      memberId: `#ZLX${String(user.id || '').slice(0, 5).toUpperCase() || '10023'}`,
+      vip: true,
+      title: 'Zelix ailəsinin fəal üzvü',
+      joinedAt: '15.03.2025',
+      level: 25,
+      xp: 12450,
+      nextXp: 20000,
+      zelixBalance: Number(user.balance || 0),
+      mapBalance: 5600
+    },
+    stats: {
+      activeDays: 45,
+      completedOrders: 28,
+      protection: 100
+    }
+  };
+}
+
+async function register(request, response) {
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const username = String(body.username || body.userName || '').trim().toLowerCase();
+  const firstName = String(body.firstName || body.first_name || body.firstname || body.name || '').trim();
+  const lastName = String(body.lastName || body.last_name || body.lastname || body.surname || '').trim();
+  const name = `${firstName} ${lastName}`.trim();
+  const email = String(body.email || '').trim().toLowerCase();
+  const password = String(body.password || '');
+  const confirmPassword = String(body.confirmPassword || '');
+  const terms = Boolean(body.terms);
+
+  if (!/^[a-z0-9_]{3,24}$/.test(username)) return sendJson(response, 400, { message: 'Username 3-24 simvol olmalı və yalnız hərf, rəqəm, _ qəbul edir.' });
+  if (firstName.length < 2) return sendJson(response, 400, { message: 'Ad ən az 2 simvol olmalıdır.' });
+  if (lastName.length < 2) return sendJson(response, 400, { message: 'Soyad ən az 2 simvol olmalıdır.' });
+  if (!/^\S+@\S+\.\S+$/.test(email)) return sendJson(response, 400, { message: 'Düzgün email daxil edin.' });
+  if (password.length < 6) return sendJson(response, 400, { message: 'Şifrə ən az 6 simvol olmalıdır.' });
+  if (password !== confirmPassword) return sendJson(response, 400, { message: 'Şifrələr uyğun deyil.' });
+  if (!terms) return sendJson(response, 400, { message: 'Üzvlük müqaviləsi və məlumatlandırma mətnini qəbul etməlisiniz.' });
+
+  const exists = await dbCheckUserExists(email, username);
+  if (exists) {
+    return sendJson(response, 409, { message: 'Bu email və ya istifadəçi adı artıq qeydiyyatdan keçib.' });
+  }
+
+  const user = {
+    id: crypto.randomUUID(),
+    username,
+    name,
+    first_name: firstName,
+    last_name: lastName,
+    email,
+    password_hash: hashPassword(password),
+    balance: 0,
+    created_at: new Date().toISOString()
+  };
+
+  await dbInsertUser(user);
+
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions.set(token, user.id);
+  sendJson(response, 201, { message: 'Qeydiyyat uğurludur.', token, user: sanitizeUser(user) });
+}
+
+async function login(request, response) {
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const identifier = String(body.identifier || body.email || '').trim().toLowerCase();
+  const password = String(body.password || '');
+
+  const user = await dbFindUserByIdentifier(identifier);
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    return sendJson(response, 401, { message: 'Email və ya şifrə yanlışdır.' });
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions.set(token, user.id);
+  sendJson(response, 200, { message: 'Giriş uğurludur.', token, user: sanitizeUser(user) });
+}
+
+async function currentUser(request, response) {
+  const token = getAuthToken(request);
+  const userId = sessions.get(token);
+  if (!userId) return sendJson(response, 401, { message: 'Sessiya aktiv deyil.' });
+
+  const user = await dbFindUserById(userId);
+  if (!user) return sendJson(response, 401, { message: 'İstifadəçi tapılmadı.' });
+  sendJson(response, 200, { user: sanitizeUser(user) });
+}
+
+async function logout(request, response) {
+  const token = getAuthToken(request);
+  if (token) sessions.delete(token);
+  sendJson(response, 200, { message: 'Çıxış edildi.' });
+}
+
+async function profile(request, response) {
+  const user = await requireUser(request, response);
+  if (!user) return;
+  sendJson(response, 200, buildProfile(user));
+}
+
+async function updateProfile(request, response) {
+  const user = await requireUser(request, response);
+  if (!user) return;
+
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const firstName = String(body.firstName || '').trim();
+  const lastName = String(body.lastName || '').trim();
+  const username = String(body.username || '').trim().toLowerCase();
+  const email = String(body.email || '').trim().toLowerCase();
+
+  if (firstName.length < 2) return sendJson(response, 400, { message: 'Ad ən az 2 simvol olmalıdır.' });
+  if (lastName.length < 2) return sendJson(response, 400, { message: 'Soyad ən az 2 simvol olmalıdır.' });
+  if (!/^[a-z0-9_]{3,24}$/.test(username)) return sendJson(response, 400, { message: 'Username 3-24 simvol olmalı və yalnız hərf, rəqəm, _ qəbul edir.' });
+  if (!/^\S+@\S+\.\S+$/.test(email)) return sendJson(response, 400, { message: 'Düzgün email daxil edin.' });
+
+  const exists = await dbCheckUserExistsExclude(email, username, user.id);
+  if (exists) return sendJson(response, 409, { message: 'Bu email və ya username artıq istifadə olunur.' });
+
+  const name = `${firstName} ${lastName}`.trim();
+  await dbUpdateProfile(user.id, username, name, firstName, lastName, email);
+  const updatedUser = await dbFindUserById(user.id);
+  sendJson(response, 200, { message: 'Dəyişikliklər yadda saxlandı.', ...buildProfile(updatedUser) });
+}
+
+async function topup(request, response) {
+  const user = await requireUser(request, response);
+  if (!user) return;
+
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const amount = Number(body.amount || 100);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10000) return sendJson(response, 400, { message: 'Topup məbləği düzgün deyil.' });
+
+  await dbUpdateBalance(user.id, amount);
+  const updatedUser = await dbFindUserById(user.id);
+  sendJson(response, 200, { message: `${amount} ZELIX balansınıza əlavə edildi.`, ...buildProfile(updatedUser) });
+}
+
+async function updatePassword(request, response) {
+  const user = await requireUser(request, response);
+  if (!user) return;
+
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const password = String(body.password || '');
+  const confirmPassword = String(body.confirmPassword || '');
+  if (password.length < 6) return sendJson(response, 400, { message: 'Şifrə ən az 6 simvol olmalıdır.' });
+  if (password !== confirmPassword) return sendJson(response, 400, { message: 'Şifrələr uyğun deyil.' });
+
+  await dbUpdatePassword(user.id, hashPassword(password));
+  sendJson(response, 200, { message: 'Şifrə uğurla yeniləndi.' });
+}
+
+async function support(request, response) {
+  const user = await requireUser(request, response);
+  if (!user) return;
+
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const subject = String(body.subject || 'Dəstək Sorğusu').trim();
+  const msg = String(body.message || 'Kö̀mək tələb olunur').trim();
+
+  // Save ticket in data/tickets.json
+  const ticketId = crypto.randomUUID();
+  const ticket = {
+    id: ticketId,
+    userId: user.id,
+    userEmail: user.email,
+    subject,
+    message: msg,
+    createdAt: new Date().toISOString()
+  };
+
+  try {
+    const ticketsPath = path.join(ROOT, 'data', 'tickets.json');
+    let ticketsDb = { tickets: [] };
+    try {
+      const data = await fs.readFile(ticketsPath, 'utf8');
+      ticketsDb = JSON.parse(data);
+    } catch {}
+    ticketsDb.tickets.push(ticket);
+    await fs.writeFile(ticketsPath, JSON.stringify(ticketsDb, null, 2));
+  } catch (err) {
+    console.error('Error saving ticket:', err);
+  }
+
+  sendJson(response, 200, { message: 'Dəstək sorğunuz qəbul edildi. Komandamız tezliklə əlaqə saxlayacaq.' });
+}
+
+async function toggleFavorite(request, response) {
+  const user = await requireUser(request, response);
+  if (!user) return;
+
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const gameName = String(body.game || 'General').trim();
+
+  const favsPath = path.join(ROOT, 'data', 'favorites.json');
+  let favsDb = { favorites: {} };
+  try {
+    const data = await fs.readFile(favsPath, 'utf8');
+    favsDb = JSON.parse(data);
+  } catch {}
+
+  if (!favsDb.favorites[user.id]) {
+    favsDb.favorites[user.id] = [];
+  }
+
+  const idx = favsDb.favorites[user.id].indexOf(gameName);
+  let isFavorite = false;
+  if (idx > -1) {
+    favsDb.favorites[user.id].splice(idx, 1);
+  } else {
+    favsDb.favorites[user.id].push(gameName);
+    isFavorite = true;
+  }
+
+  try {
+    await fs.writeFile(favsPath, JSON.stringify(favsDb, null, 2));
+  } catch (err) {
+    console.error('Error saving favorites:', err);
+  }
+
+  sendJson(response, 200, {
+    message: isFavorite ? `${gameName} seçilmişlərə əlavə edildi.` : `${gameName} seçilmişlərdən çıxarıldı.`,
+    favorite: isFavorite
+  });
+}
+
+// ==========================================
+// VOUCHER SIMULATED PURCHASE ENDPOINT (NEW)
+// ==========================================
+
+async function buyProduct(request, response) {
+  const user = await requireUser(request, response);
+  if (!user) return;
+
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const game = String(body.game || '').trim();
+  const packageName = String(body.package || '').trim();
+  const price = Number(body.price || 0);
+  const playerId = String(body.playerId || '').trim();
+
+  if (!game || !packageName || price <= 0 || !playerId) {
+    return sendJson(response, 400, { message: 'Sifariş məlumatları tam deyil.' });
+  }
+
+  if (Number(user.balance) < price) {
+    return sendJson(response, 400, { message: 'Balansınız kifayət deyil. Zəhmət olmasa balansı artırın.' });
+  }
+
+  // Deduct user balance
+  await dbUpdateBalance(user.id, -price);
+
+  // Append order
+  const orderId = crypto.randomUUID();
+  const order = {
+    id: orderId,
+    userId: user.id,
+    userEmail: user.email,
+    game,
+    package: packageName,
+    price,
+    playerId,
+    status: 'Tamamlandı',
+    createdAt: new Date().toISOString()
+  };
+
+  try {
+    const ordersPath = path.join(ROOT, 'data', 'orders.json');
+    let ordersDb = { orders: [] };
+    try {
+      const data = await fs.readFile(ordersPath, 'utf8');
+      ordersDb = JSON.parse(data);
+    } catch {}
+    ordersDb.orders.push(order);
+    await fs.writeFile(ordersPath, JSON.stringify(ordersDb, null, 2));
+  } catch (err) {
+    console.error('Error saving order:', err);
+  }
+
+  const updatedUser = await dbFindUserById(user.id);
+  sendJson(response, 200, {
+    message: `Təbriklər! ${packageName} (${price} ZELIX) hesabınıza yükləndi. Oyunçu ID: ${playerId}`,
+    ...buildProfile(updatedUser)
+  });
+}
+
+// ==========================================
+// STATIC FILE SERVER
+// ==========================================
+
+async function serveStatic(request, response) {
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
+  const filePath = path.normalize(path.join(ROOT, pathname));
+
+  if (!filePath.startsWith(ROOT)) {
+    response.writeHead(403);
+    response.end('Forbidden');
+    return;
+  }
+
+  try {
+    const file = await fs.readFile(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    response.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+    response.end(file);
+  } catch {
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    response.end('Not found');
+  }
+}
+
+// ==========================================
+// SERVER INITIALIZATION & FALLBACK
+// ==========================================
+
+const server = http.createServer(async (request, response) => {
+  try {
+    if (request.method === 'POST' && request.url === '/api/register') return await register(request, response);
+    if (request.method === 'POST' && request.url === '/api/login') return await login(request, response);
+    if (request.method === 'POST' && request.url === '/api/logout') return await logout(request, response);
+    if (request.method === 'GET' && request.url === '/api/me') return await currentUser(request, response);
+    if (request.method === 'GET' && request.url === '/api/profile') return await profile(request, response);
+    if (request.method === 'POST' && request.url === '/api/profile') return await updateProfile(request, response);
+    if (request.method === 'POST' && request.url === '/api/topup') return await topup(request, response);
+    if (request.method === 'POST' && request.url === '/api/password') return await updatePassword(request, response);
+    if (request.method === 'POST' && request.url === '/api/support') return await support(request, response);
+    if (request.method === 'POST' && request.url === '/api/favorites/toggle') return await toggleFavorite(request, response);
+    if (request.method === 'POST' && request.url === '/api/buy') return await buyProduct(request, response);
+    if (request.method === 'GET') return await serveStatic(request, response);
+
+    response.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8' });
+    response.end(JSON.stringify({ message: 'Method not allowed' }));
+  } catch (error) {
+    sendJson(response, 500, { message: 'Server xətası baş verdi.' });
+  }
+});
+
+// Try connecting to MySQL
+pool.query('SELECT 1').then(() => {
+  console.log('MySQL connection successful.');
+  server.listen(PORT, () => {
+    console.log(`ZELIX TOPUP running at http://localhost:${PORT}`);
+  });
+}).catch(async (error) => {
+  console.warn(`[Warning] MySQL connection failed. Details: ${error.message}`);
+  console.warn('Falling back transparently to local JSON database storage...');
+  
+  isJsonMode = true;
+  
+  // Set up local data directory and users.json
+  try {
+    await fs.mkdir(path.join(ROOT, 'data'), { recursive: true });
+    
+    // Load users
+    try {
+      const data = await fs.readFile(path.join(ROOT, 'data', 'users.json'), 'utf8');
+      usersDb = JSON.parse(data);
+    } catch {
+      usersDb = { users: [] };
+      await fs.writeFile(path.join(ROOT, 'data', 'users.json'), JSON.stringify(usersDb, null, 2));
+    }
+
+    // Load orders
+    try {
+      await fs.readFile(path.join(ROOT, 'data', 'orders.json'), 'utf8');
+    } catch {
+      await fs.writeFile(path.join(ROOT, 'data', 'orders.json'), JSON.stringify({ orders: [] }, null, 2));
+    }
+    
+    server.listen(PORT, () => {
+      console.log(`ZELIX TOPUP (JSON DB mode) running at http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error('Failed to initialize local JSON database fallback:', err.message);
+    process.exit(1);
+  }
+});

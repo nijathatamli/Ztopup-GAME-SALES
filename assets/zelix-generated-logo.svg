@@ -1,0 +1,51 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" fill="#050505"/>
+  <defs>
+    <linearGradient id="gold" x1="220" y1="120" x2="780" y2="860" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFF2A6"/>
+      <stop offset="0.22" stop-color="#FFB300"/>
+      <stop offset="0.48" stop-color="#D87800"/>
+      <stop offset="0.72" stop-color="#FFD66A"/>
+      <stop offset="1" stop-color="#8E4A00"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="310" y1="250" x2="720" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7C6"/>
+      <stop offset="0.45" stop-color="#FFB300"/>
+      <stop offset="1" stop-color="#633000"/>
+    </linearGradient>
+    <filter id="glow" x="50" y="50" width="924" height="924" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="1 0 0 0 1  0 0.72 0 0 0.55  0 0 0.12 0 0  0 0 0 0.8 0"/>
+      <feBlend in="SourceGraphic" mode="screen"/>
+    </filter>
+    <filter id="soft" x="0" y="0" width="1024" height="1024" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+  </defs>
+
+  <g opacity="0.38" filter="url(#soft)">
+    <ellipse cx="512" cy="756" rx="260" ry="26" fill="#FFB300"/>
+    <path d="M158 430H366" stroke="#FFB300" stroke-width="7" stroke-linecap="round"/>
+    <path d="M642 430H864" stroke="#FFB300" stroke-width="7" stroke-linecap="round"/>
+    <path d="M232 356H402" stroke="#FFB300" stroke-width="4" stroke-linecap="round"/>
+    <path d="M624 356H792" stroke="#FFB300" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <g filter="url(#glow)">
+    <path d="M512 149L548 222L628 234L570 291L584 371L512 333L440 371L454 291L396 234L476 222L512 149Z" fill="url(#gold)" stroke="#FFE68A" stroke-width="8"/>
+    <path d="M452 304L512 239L572 304L542 350H482L452 304Z" fill="#090600" stroke="#FFD66A" stroke-width="8"/>
+    <path d="M476 304H548M512 239L512 350M452 304L482 350M572 304L542 350" stroke="#FFB300" stroke-width="6"/>
+
+    <path d="M732 277H390L302 414H566L238 704H609L718 548H488L732 277Z" fill="url(#gold)" stroke="#FFE68A" stroke-width="12" stroke-linejoin="round"/>
+    <path d="M699 316H413L371 382H638L332 665H584L634 589H404L699 316Z" fill="#090600" opacity="0.58"/>
+    <path d="M604 282L408 524H531L414 734L690 469H561L604 282Z" fill="url(#edge)" stroke="#FFF0A0" stroke-width="9" stroke-linejoin="round"/>
+    <path d="M610 306L459 502H568L477 672L658 491H535L610 306Z" fill="#FFF0A0" opacity="0.28"/>
+  </g>
+
+  <g>
+    <text x="512" y="838" text-anchor="middle" font-family="Orbitron, Rajdhani, Arial Black, sans-serif" font-size="118" font-weight="900" letter-spacing="14" fill="url(#gold)" stroke="#6B3500" stroke-width="3">ZELIX</text>
+    <path d="M302 888H430" stroke="#FFB300" stroke-width="8" stroke-linecap="round"/>
+    <text x="512" y="908" text-anchor="middle" font-family="Orbitron, Rajdhani, Arial Black, sans-serif" font-size="44" font-weight="900" letter-spacing="18" fill="#FFD66A">TOPUP</text>
+    <path d="M594 888H722" stroke="#FFB300" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>
