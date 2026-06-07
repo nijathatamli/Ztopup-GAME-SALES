@@ -7,8 +7,6 @@ const mysql = require('mysql2/promise');
 
 const PORT = process.env.PORT || 8091;
 const ROOT = __dirname;
-const sessions = new Map();
-
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
@@ -129,13 +127,28 @@ async function dbUpdatePassword(id, passwordHash) {
   await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, id]);
 }
 
+async function dbCreateSession(token, userId) {
+  await pool.execute('INSERT INTO sessions (token, user_id) VALUES (?, ?)', [token, userId]);
+}
+
+async function dbGetSessionUserId(token) {
+  if (!token) return null;
+  const [rows] = await pool.execute('SELECT user_id FROM sessions WHERE token = ? LIMIT 1', [token]);
+  return rows[0] ? rows[0].user_id : null;
+}
+
+async function dbDeleteSession(token) {
+  if (!token) return;
+  await pool.execute('DELETE FROM sessions WHERE token = ?', [token]);
+}
+
 // ==========================================
 // ROUTE LOGIC
 // ==========================================
 
 async function requireUser(request, response) {
   const token = getAuthToken(request);
-  const userId = sessions.get(token);
+  const userId = await dbGetSessionUserId(token);
   if (!userId) {
     sendJson(response, 401, { message: 'Sessiya aktiv deyil. Zəhmət olmasa daxil olun.' });
     return null;
@@ -216,7 +229,7 @@ async function register(request, response) {
   await dbInsertUser(user);
 
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, user.id);
+  await dbCreateSession(token, user.id);
   sendJson(response, 201, { message: 'Qeydiyyat uğurludur.', token, user: sanitizeUser(user) });
 }
 
@@ -231,13 +244,13 @@ async function login(request, response) {
   }
 
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, user.id);
+  await dbCreateSession(token, user.id);
   sendJson(response, 200, { message: 'Giriş uğurludur.', token, user: sanitizeUser(user) });
 }
 
 async function currentUser(request, response) {
   const token = getAuthToken(request);
-  const userId = sessions.get(token);
+  const userId = await dbGetSessionUserId(token);
   if (!userId) return sendJson(response, 401, { message: 'Sessiya aktiv deyil.' });
 
   const user = await dbFindUserById(userId);
@@ -247,7 +260,7 @@ async function currentUser(request, response) {
 
 async function logout(request, response) {
   const token = getAuthToken(request);
-  if (token) sessions.delete(token);
+  if (token) await dbDeleteSession(token);
   sendJson(response, 200, { message: 'Çıxış edildi.' });
 }
 
