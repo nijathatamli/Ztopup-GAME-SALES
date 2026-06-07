@@ -3,20 +3,35 @@ const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
 require('dotenv').config();
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 8091;
 const ROOT = __dirname;
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT || 3306),
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'zelix_topup',
-  waitForConnections: true,
-  connectionLimit: 10
-});
+// Prefer DATABASE_URL if provided (e.g., on Render). Fall back to discrete vars locally.
+let pool;
+if (process.env.DATABASE_URL) {
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    // Many managed Postgres providers (including Render External URL) require SSL.
+    // Allow opting out via DB_SSL=false for internal connections.
+    ssl: (process.env.DB_SSL === 'true' || process.env.PGSSLMODE === 'require') ? { rejectUnauthorized: false } : undefined,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000
+  });
+} else {
+  pool = new Pool({
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT || 5432),
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'zelix_topup',
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000
+  });
+}
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -82,64 +97,64 @@ function sanitizeUser(user) {
 }
 
 // ==========================================
-// DATABASE ABSTRACTION LAYER (MYSQL ONLY)
+// DATABASE ABSTRACTION LAYER (POSTGRESQL ONLY)
 // ==========================================
 
 async function dbFindUserById(id) {
-  const [rows] = await pool.execute('SELECT * FROM users WHERE id = ? LIMIT 1', [id]);
+  const { rows } = await pool.query('SELECT * FROM users WHERE id = $1 LIMIT 1', [id]);
   return rows[0] || null;
 }
 
 async function dbFindUserByIdentifier(identifier) {
-  const [rows] = await pool.execute('SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1', [identifier, identifier]);
+  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 OR username = $2 LIMIT 1', [identifier, identifier]);
   return rows[0] || null;
 }
 
 async function dbCheckUserExists(email, username) {
-  const [rows] = await pool.execute('SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1', [email, username]);
+  const { rows } = await pool.query('SELECT id FROM users WHERE email = $1 OR username = $2 LIMIT 1', [email, username]);
   return rows.length > 0;
 }
 
 async function dbCheckUserExistsExclude(email, username, excludeId) {
-  const [rows] = await pool.execute('SELECT id FROM users WHERE (email = ? OR username = ?) AND id <> ? LIMIT 1', [email, username, excludeId]);
+  const { rows } = await pool.query('SELECT id FROM users WHERE (email = $1 OR username = $2) AND id <> $3 LIMIT 1', [email, username, excludeId]);
   return rows.length > 0;
 }
 
 async function dbInsertUser(user) {
-  await pool.execute(
-    'INSERT INTO users (id, username, name, first_name, last_name, email, password_hash, balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  await pool.query(
+    'INSERT INTO users (id, username, name, first_name, last_name, email, password_hash, balance) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
     [user.id, user.username, user.name, user.first_name, user.last_name, user.email, user.password_hash, user.balance]
   );
 }
 
 async function dbUpdateProfile(id, username, name, firstName, lastName, email) {
-  await pool.execute(
-    'UPDATE users SET username = ?, name = ?, first_name = ?, last_name = ?, email = ? WHERE id = ?',
+  await pool.query(
+    'UPDATE users SET username = $1, name = $2, first_name = $3, last_name = $4, email = $5 WHERE id = $6',
     [username, name, firstName, lastName, email, id]
   );
 }
 
 async function dbUpdateBalance(id, amount) {
-  await pool.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, id]);
+  await pool.query('UPDATE users SET balance = balance + $1 WHERE id = $2', [amount, id]);
 }
 
 async function dbUpdatePassword(id, passwordHash) {
-  await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, id]);
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, id]);
 }
 
 async function dbCreateSession(token, userId) {
-  await pool.execute('INSERT INTO sessions (token, user_id) VALUES (?, ?)', [token, userId]);
+  await pool.query('INSERT INTO sessions (token, user_id) VALUES ($1, $2)', [token, userId]);
 }
 
 async function dbGetSessionUserId(token) {
   if (!token) return null;
-  const [rows] = await pool.execute('SELECT user_id FROM sessions WHERE token = ? LIMIT 1', [token]);
+  const { rows } = await pool.query('SELECT user_id FROM sessions WHERE token = $1 LIMIT 1', [token]);
   return rows[0] ? rows[0].user_id : null;
 }
 
 async function dbDeleteSession(token) {
   if (!token) return;
-  await pool.execute('DELETE FROM sessions WHERE token = ?', [token]);
+  await pool.query('DELETE FROM sessions WHERE token = $1', [token]);
 }
 
 // ==========================================
@@ -330,8 +345,8 @@ async function support(request, response) {
   const msg = String(body.message || 'Kö̀mək tələb olunur').trim();
 
   const ticketId = crypto.randomUUID();
-  await pool.execute(
-    'INSERT INTO tickets (id, user_id, user_email, subject, message) VALUES (?, ?, ?, ?, ?)',
+  await pool.query(
+    'INSERT INTO tickets (id, user_id, user_email, subject, message) VALUES ($1, $2, $3, $4, $5)',
     [ticketId, user.id, user.email, subject, msg]
   );
 
@@ -345,12 +360,12 @@ async function toggleFavorite(request, response) {
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const gameName = String(body.game || 'General').trim();
 
-  const [rows] = await pool.execute('SELECT id FROM favorites WHERE user_id = ? AND game_name = ? LIMIT 1', [user.id, gameName]);
+  const { rows } = await pool.query('SELECT id FROM favorites WHERE user_id = $1 AND game_name = $2 LIMIT 1', [user.id, gameName]);
   let isFavorite = false;
   if (rows.length > 0) {
-    await pool.execute('DELETE FROM favorites WHERE user_id = ? AND game_name = ?', [user.id, gameName]);
+    await pool.query('DELETE FROM favorites WHERE user_id = $1 AND game_name = $2', [user.id, gameName]);
   } else {
-    await pool.execute('INSERT INTO favorites (user_id, game_name) VALUES (?, ?)', [user.id, gameName]);
+    await pool.query('INSERT INTO favorites (user_id, game_name) VALUES ($1, $2)', [user.id, gameName]);
     isFavorite = true;
   }
 
@@ -387,8 +402,8 @@ async function buyProduct(request, response) {
 
   // Save order
   const orderId = crypto.randomUUID();
-  await pool.execute(
-    'INSERT INTO orders (id, user_id, user_email, game, package, price, player_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  await pool.query(
+    'INSERT INTO orders (id, user_id, user_email, game, package, price, player_id, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
     [orderId, user.id, user.email, game, packageName, price, playerId, 'Tamamlandı']
   );
 
@@ -451,14 +466,14 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-// Try connecting to MySQL
-pool.query('SELECT 1').then(() => {
-  console.log('MySQL connection successful.');
+// Try connecting to PostgreSQL
+pool.query('SELECT NOW()').then(() => {
+  console.log('PostgreSQL connection successful.');
   server.listen(PORT, () => {
     console.log(`ZELIX TOPUP running at http://localhost:${PORT}`);
   });
 }).catch((error) => {
-  console.error(`[Fatal] MySQL connection failed. Details: ${error.message}`);
-  console.error('Please ensure MySQL is running and credentials are correct in .env');
+  console.error(`[Fatal] PostgreSQL connection failed. Details: ${error.message}`);
+  console.error('Please ensure PostgreSQL is running and credentials are correct in .env');
   process.exit(1);
 });
