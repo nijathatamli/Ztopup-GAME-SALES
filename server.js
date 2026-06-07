@@ -9,9 +9,6 @@ const PORT = process.env.PORT || 8091;
 const ROOT = __dirname;
 const sessions = new Map();
 
-// Global database mode
-let isJsonMode = false;
-let usersDb = { users: [] };
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
@@ -87,139 +84,49 @@ function sanitizeUser(user) {
 }
 
 // ==========================================
-// DYNAMIC DATABASE ABSTRACTION LAYER (MYSQL & JSON)
+// DATABASE ABSTRACTION LAYER (MYSQL ONLY)
 // ==========================================
 
-async function saveJsonDb() {
-  await fs.writeFile(path.join(ROOT, 'data', 'users.json'), JSON.stringify(usersDb, null, 2));
-}
-
 async function dbFindUserById(id) {
-  if (isJsonMode) {
-    const user = usersDb.users.find(u => u.id === id);
-    if (!user) return null;
-    return {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      first_name: user.first_name || user.firstName,
-      last_name: user.last_name || user.lastName,
-      email: user.email,
-      password_hash: user.password_hash || user.password,
-      balance: Number(user.balance || 0),
-      created_at: user.created_at || user.createdAt
-    };
-  } else {
-    const [rows] = await pool.execute('SELECT * FROM users WHERE id = ? LIMIT 1', [id]);
-    return rows[0] || null;
-  }
+  const [rows] = await pool.execute('SELECT * FROM users WHERE id = ? LIMIT 1', [id]);
+  return rows[0] || null;
 }
 
 async function dbFindUserByIdentifier(identifier) {
-  if (isJsonMode) {
-    const user = usersDb.users.find(u => u.email === identifier || u.username === identifier);
-    if (!user) return null;
-    return {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      first_name: user.first_name || user.firstName,
-      last_name: user.last_name || user.lastName,
-      email: user.email,
-      password_hash: user.password_hash || user.password,
-      balance: Number(user.balance || 0),
-      created_at: user.created_at || user.createdAt
-    };
-  } else {
-    const [rows] = await pool.execute('SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1', [identifier]);
-    return rows[0] || null;
-  }
+  const [rows] = await pool.execute('SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1', [identifier, identifier]);
+  return rows[0] || null;
 }
 
 async function dbCheckUserExists(email, username) {
-  if (isJsonMode) {
-    return usersDb.users.some(u => u.email === email || u.username === username);
-  } else {
-    const [rows] = await pool.execute('SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1', [email, username]);
-    return rows.length > 0;
-  }
+  const [rows] = await pool.execute('SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1', [email, username]);
+  return rows.length > 0;
 }
 
 async function dbCheckUserExistsExclude(email, username, excludeId) {
-  if (isJsonMode) {
-    return usersDb.users.some(u => (u.email === email || u.username === username) && u.id !== excludeId);
-  } else {
-    const [rows] = await pool.execute('SELECT id FROM users WHERE (email = ? OR username = ?) AND id <> ? LIMIT 1', [email, username, excludeId]);
-    return rows.length > 0;
-  }
+  const [rows] = await pool.execute('SELECT id FROM users WHERE (email = ? OR username = ?) AND id <> ? LIMIT 1', [email, username, excludeId]);
+  return rows.length > 0;
 }
 
 async function dbInsertUser(user) {
-  if (isJsonMode) {
-    usersDb.users.push({
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      first_name: user.first_name,
-      last_name: user.last_name,
-      email: user.email,
-      password_hash: user.password_hash,
-      balance: Number(user.balance || 0),
-      created_at: user.created_at
-    });
-    await saveJsonDb();
-  } else {
-    await pool.execute(
-      'INSERT INTO users (id, username, name, first_name, last_name, email, password_hash, balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [user.id, user.username, user.name, user.first_name, user.last_name, user.email, user.password_hash, user.balance]
-    );
-  }
+  await pool.execute(
+    'INSERT INTO users (id, username, name, first_name, last_name, email, password_hash, balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [user.id, user.username, user.name, user.first_name, user.last_name, user.email, user.password_hash, user.balance]
+  );
 }
 
 async function dbUpdateProfile(id, username, name, firstName, lastName, email) {
-  if (isJsonMode) {
-    const user = usersDb.users.find(u => u.id === id);
-    if (user) {
-      user.username = username;
-      user.name = name;
-      user.first_name = firstName;
-      user.last_name = lastName;
-      user.firstName = firstName; // for cross-compat
-      user.lastName = lastName;
-      user.email = email;
-      await saveJsonDb();
-    }
-  } else {
-    await pool.execute(
-      'UPDATE users SET username = ?, name = ?, first_name = ?, last_name = ?, email = ? WHERE id = ?',
-      [username, name, firstName, lastName, email, id]
-    );
-  }
+  await pool.execute(
+    'UPDATE users SET username = ?, name = ?, first_name = ?, last_name = ?, email = ? WHERE id = ?',
+    [username, name, firstName, lastName, email, id]
+  );
 }
 
 async function dbUpdateBalance(id, amount) {
-  if (isJsonMode) {
-    const user = usersDb.users.find(u => u.id === id);
-    if (user) {
-      user.balance = Number(user.balance || 0) + amount;
-      await saveJsonDb();
-    }
-  } else {
-    await pool.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, id]);
-  }
+  await pool.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, id]);
 }
 
 async function dbUpdatePassword(id, passwordHash) {
-  if (isJsonMode) {
-    const user = usersDb.users.find(u => u.id === id);
-    if (user) {
-      user.password_hash = passwordHash;
-      user.password = passwordHash;
-      await saveJsonDb();
-    }
-  } else {
-    await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, id]);
-  }
+  await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, id]);
 }
 
 // ==========================================
@@ -409,29 +316,11 @@ async function support(request, response) {
   const subject = String(body.subject || 'Dəstək Sorğusu').trim();
   const msg = String(body.message || 'Kö̀mək tələb olunur').trim();
 
-  // Save ticket in data/tickets.json
   const ticketId = crypto.randomUUID();
-  const ticket = {
-    id: ticketId,
-    userId: user.id,
-    userEmail: user.email,
-    subject,
-    message: msg,
-    createdAt: new Date().toISOString()
-  };
-
-  try {
-    const ticketsPath = path.join(ROOT, 'data', 'tickets.json');
-    let ticketsDb = { tickets: [] };
-    try {
-      const data = await fs.readFile(ticketsPath, 'utf8');
-      ticketsDb = JSON.parse(data);
-    } catch {}
-    ticketsDb.tickets.push(ticket);
-    await fs.writeFile(ticketsPath, JSON.stringify(ticketsDb, null, 2));
-  } catch (err) {
-    console.error('Error saving ticket:', err);
-  }
+  await pool.execute(
+    'INSERT INTO tickets (id, user_id, user_email, subject, message) VALUES (?, ?, ?, ?, ?)',
+    [ticketId, user.id, user.email, subject, msg]
+  );
 
   sendJson(response, 200, { message: 'Dəstək sorğunuz qəbul edildi. Komandamız tezliklə əlaqə saxlayacaq.' });
 }
@@ -443,30 +332,13 @@ async function toggleFavorite(request, response) {
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const gameName = String(body.game || 'General').trim();
 
-  const favsPath = path.join(ROOT, 'data', 'favorites.json');
-  let favsDb = { favorites: {} };
-  try {
-    const data = await fs.readFile(favsPath, 'utf8');
-    favsDb = JSON.parse(data);
-  } catch {}
-
-  if (!favsDb.favorites[user.id]) {
-    favsDb.favorites[user.id] = [];
-  }
-
-  const idx = favsDb.favorites[user.id].indexOf(gameName);
+  const [rows] = await pool.execute('SELECT id FROM favorites WHERE user_id = ? AND game_name = ? LIMIT 1', [user.id, gameName]);
   let isFavorite = false;
-  if (idx > -1) {
-    favsDb.favorites[user.id].splice(idx, 1);
+  if (rows.length > 0) {
+    await pool.execute('DELETE FROM favorites WHERE user_id = ? AND game_name = ?', [user.id, gameName]);
   } else {
-    favsDb.favorites[user.id].push(gameName);
+    await pool.execute('INSERT INTO favorites (user_id, game_name) VALUES (?, ?)', [user.id, gameName]);
     isFavorite = true;
-  }
-
-  try {
-    await fs.writeFile(favsPath, JSON.stringify(favsDb, null, 2));
-  } catch (err) {
-    console.error('Error saving favorites:', err);
   }
 
   sendJson(response, 200, {
@@ -500,32 +372,12 @@ async function buyProduct(request, response) {
   // Deduct user balance
   await dbUpdateBalance(user.id, -price);
 
-  // Append order
+  // Save order
   const orderId = crypto.randomUUID();
-  const order = {
-    id: orderId,
-    userId: user.id,
-    userEmail: user.email,
-    game,
-    package: packageName,
-    price,
-    playerId,
-    status: 'Tamamlandı',
-    createdAt: new Date().toISOString()
-  };
-
-  try {
-    const ordersPath = path.join(ROOT, 'data', 'orders.json');
-    let ordersDb = { orders: [] };
-    try {
-      const data = await fs.readFile(ordersPath, 'utf8');
-      ordersDb = JSON.parse(data);
-    } catch {}
-    ordersDb.orders.push(order);
-    await fs.writeFile(ordersPath, JSON.stringify(ordersDb, null, 2));
-  } catch (err) {
-    console.error('Error saving order:', err);
-  }
+  await pool.execute(
+    'INSERT INTO orders (id, user_id, user_email, game, package, price, player_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [orderId, user.id, user.email, game, packageName, price, playerId, 'Tamamlandı']
+  );
 
   const updatedUser = await dbFindUserById(user.id);
   sendJson(response, 200, {
@@ -561,7 +413,7 @@ async function serveStatic(request, response) {
 }
 
 // ==========================================
-// SERVER INITIALIZATION & FALLBACK
+// SERVER INITIALIZATION
 // ==========================================
 
 const server = http.createServer(async (request, response) => {
@@ -592,37 +444,8 @@ pool.query('SELECT 1').then(() => {
   server.listen(PORT, () => {
     console.log(`ZELIX TOPUP running at http://localhost:${PORT}`);
   });
-}).catch(async (error) => {
-  console.warn(`[Warning] MySQL connection failed. Details: ${error.message}`);
-  console.warn('Falling back transparently to local JSON database storage...');
-  
-  isJsonMode = true;
-  
-  // Set up local data directory and users.json
-  try {
-    await fs.mkdir(path.join(ROOT, 'data'), { recursive: true });
-    
-    // Load users
-    try {
-      const data = await fs.readFile(path.join(ROOT, 'data', 'users.json'), 'utf8');
-      usersDb = JSON.parse(data);
-    } catch {
-      usersDb = { users: [] };
-      await fs.writeFile(path.join(ROOT, 'data', 'users.json'), JSON.stringify(usersDb, null, 2));
-    }
-
-    // Load orders
-    try {
-      await fs.readFile(path.join(ROOT, 'data', 'orders.json'), 'utf8');
-    } catch {
-      await fs.writeFile(path.join(ROOT, 'data', 'orders.json'), JSON.stringify({ orders: [] }, null, 2));
-    }
-    
-    server.listen(PORT, () => {
-      console.log(`ZELIX TOPUP (JSON DB mode) running at http://localhost:${PORT}`);
-    });
-  } catch (err) {
-    console.error('Failed to initialize local JSON database fallback:', err.message);
-    process.exit(1);
-  }
+}).catch((error) => {
+  console.error(`[Fatal] MySQL connection failed. Details: ${error.message}`);
+  console.error('Please ensure MySQL is running and credentials are correct in .env');
+  process.exit(1);
 });
