@@ -249,6 +249,37 @@ function StatGrid(){
   </section>
 }
 
+function OrdersPanel(){
+  const [orders,setOrders]=React.useState([]);
+  const [error,setError]=React.useState('');
+  React.useEffect(()=>{apiRequest('/api/orders').then(d=>setOrders(d.orders||[])).catch(e=>setError(e.message||'Sifarişlər yüklənmədi'))},[]);
+  return <section className="glass rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)]">
+    <div className="mb-4 flex items-center justify-between">
+      <h3 className="font-orbitron text-xl font-black">Sifarişlərim</h3>
+      <span className="rounded-full border border-violet/30 bg-violet/10 px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] text-violet">Canlı</span>
+    </div>
+    {error && <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
+    <div className="grid gap-3">
+      {orders.length===0 ? (
+        <div className="rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-white/60">Hələ sifariş yoxdur.</div>
+      ) : orders.map(o=>
+        <div key={o.id} className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="font-orbitron text-lg font-black">{o.package} <span className="text-white/50">({o.game})</span></div>
+            <div className={`${String(o.status||'').toLowerCase().includes('tamam')?'bg-emerald-500/15 text-emerald-300 border border-emerald-400/25':String(o.status||'').toLowerCase().includes('gözl')?'bg-yellow-500/10 text-amber-300 border border-amber-400/25':'bg-white/5 text-white/70 border border-white/10'} rounded-full px-3 py-1 text-xs font-rajdhani font-black`}>{o.status || 'Status'}</div>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-white/70 sm:grid-cols-4">
+            <div>Qiymət: <span className="font-orbitron text-gold">{Number(o.price||0).toFixed(2)} ₼</span></div>
+            <div>Miqdar: <span className="font-orbitron">{o.quantity || 1}</span></div>
+            <div>ID: <span className="font-orbitron">{o.player_id||'—'}</span></div>
+            <div>Tarix: <span className="font-orbitron">{String(o.created_at||'').slice(0,19).replace('T',' ')}</span></div>
+          </div>
+        </div>
+      )}
+    </div>
+  </section>
+}
+
 function Footer(){
   return <footer className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-white/10 py-6 text-sm text-white/45 md:flex-row">
     <div>© 2025 ZELIX TOPUP. Bütün hüquqlar qorunur.</div>
@@ -310,6 +341,7 @@ function App(){
             <Tabs/>
             <ProfileForm profile={profile} onSave={saveProfile} message={message}/>
             <StatGrid/>
+            <OrdersPanel/>
           </>
         )}
         <Footer/>

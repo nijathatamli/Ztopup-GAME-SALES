@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "dotenv": "^16.4.7",
+    "jsonwebtoken": "^9.0.2",
     "pg": "^8.21.0"
   },
   "keywords": [

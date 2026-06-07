@@ -469,12 +469,14 @@
     inset:0;
     background:radial-gradient(circle at 50% 32%,var(--accent),transparent 48%);
     opacity:.9;
+    pointer-events:none;
   }
   .category-card::after{
     content:"";
     position:absolute;
     inset:0;
     background:linear-gradient(180deg,transparent 26%,rgba(0,0,0,.88) 100%);
+    pointer-events:none;
   }
   .game-art{
     position:absolute;
@@ -927,7 +929,7 @@
 
   const categoryGrid = document.querySelector('#categoryGrid');
   categoryGrid.innerHTML = games.map(game => `
-    <div class="category-card ${game.className}">
+    <div class="category-card ${game.className}" data-game="${game.name}">
       <div class="game-art">
         <img src="${game.image}" alt="${game.name} artwork" loading="lazy">
       </div>
@@ -935,6 +937,44 @@
       <div class="arrow">›</div>
     </div>
   `).join('');
+
+  // Navigate to dedicated pages
+  document.querySelectorAll('.category-card').forEach(card => {
+    const g = (card.getAttribute('data-game') || '').toLowerCase();
+    card.addEventListener('click', () => {
+      if (g.includes('pubg')) {
+        window.location.assign('pubg.html');
+      }
+    });
+  });
+
+  const pubgCard = document.querySelector('.category-card.pubg');
+  if (pubgCard) {
+    pubgCard.style.position = 'relative';
+    pubgCard.style.cursor = 'pointer';
+    pubgCard.style.zIndex = '0';
+    const link = document.createElement('a');
+    link.href = 'pubg.html';
+    link.style.position = 'absolute';
+    link.style.top = '0';
+    link.style.right = '0';
+    link.style.bottom = '0';
+    link.style.left = '0';
+    link.style.display = 'block';
+    link.style.zIndex = '999';
+    link.setAttribute('aria-label', 'PUBG Mobile UC');
+    pubgCard.appendChild(link);
+
+    // iOS/Safari touch fallback
+    pubgCard.addEventListener('touchend', (e) => {
+      try { e.preventDefault(); } catch {}
+      window.location.assign('pubg.html');
+    }, { passive: false });
+
+    pubgCard.addEventListener('mousedown', () => {
+      window.location.assign('pubg.html');
+    });
+  }
 
   document.querySelector('#topupCta').addEventListener('click', () => {
     document.querySelector('#categories').scrollIntoView({ behavior: 'smooth', block: 'start' });
