@@ -1,7 +1,3 @@
-CREATE DATABASE IF NOT EXISTS zelix_topup CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-USE zelix_topup;
-
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(36) PRIMARY KEY,
   username VARCHAR(80) NOT NULL UNIQUE,
@@ -14,8 +10,16 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 
 CREATE TABLE IF NOT EXISTS tickets (
   id VARCHAR(36) PRIMARY KEY,
@@ -23,18 +27,20 @@ CREATE TABLE IF NOT EXISTS tickets (
   user_email VARCHAR(190) NOT NULL,
   subject VARCHAR(255) NOT NULL,
   message TEXT NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_tickets_user_id (user_id)
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
+
 CREATE TABLE IF NOT EXISTS favorites (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   user_id VARCHAR(36) NOT NULL,
   game_name VARCHAR(120) NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY unique_fav (user_id, game_name),
-  INDEX idx_favorites_user_id (user_id)
+  CONSTRAINT unique_fav UNIQUE (user_id, game_name)
 );
+
+CREATE INDEX IF NOT EXISTS idx_favorites_user_id ON favorites(user_id);
 
 CREATE TABLE IF NOT EXISTS orders (
   id VARCHAR(36) PRIMARY KEY,
@@ -45,6 +51,7 @@ CREATE TABLE IF NOT EXISTS orders (
   price DECIMAL(10,2) NOT NULL,
   player_id VARCHAR(120) NOT NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'Tamamlandı',
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_orders_user_id (user_id)
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
