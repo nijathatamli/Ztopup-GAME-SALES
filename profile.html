@@ -104,7 +104,7 @@ function Topbar(){
   </header>
 }
 
-function Sidebar({profile,onAction,onLogout,onShowProducts,showProducts}){
+function Sidebar({profile,onAction,onLogout,onShowProducts,showProducts,loggingOut}){
   return <aside className="glass flex h-fit flex-col rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] lg:sticky lg:top-24">
     <div className="flex flex-col items-center text-center">
       <Avatar/>
@@ -125,7 +125,7 @@ function Sidebar({profile,onAction,onLogout,onShowProducts,showProducts}){
           undefined
         }
         className={`flex items-center gap-3 rounded-2xl px-4 py-3 font-rajdhani text-sm font-black tracking-[.08em] transition ${(item[1]==='PROFİL' && !showProducts) || (item[1]==='MƏHSULLAR' && showProducts)?'bg-violet/18 text-white shadow-violet ring-1 ring-violet/25':'text-white/58 hover:bg-white/5 hover:text-white'}`}><span className="text-lg">{item[0]}</span>{item[1]}</a>)}
-      <a href="#" onClick={e=>{e.preventDefault();onLogout();}} className="flex items-center gap-3 rounded-2xl px-4 py-3 font-rajdhani text-sm font-black tracking-[.08em] text-red-300 transition hover:bg-red-500/10 hover:text-red-200"><span className="text-lg">⏻</span>ÇIXIŞ</a>
+      <a href="#" onClick={e=>{e.preventDefault();if(!loggingOut)onLogout();}} className={`flex items-center gap-3 rounded-2xl px-4 py-3 font-rajdhani text-sm font-black tracking-[.08em] transition ${loggingOut?'opacity-70 cursor-wait':'text-red-300 hover:bg-red-500/10 hover:text-red-200'}`}><span className="text-lg">{loggingOut?'⏳':'⏻'}</span>{loggingOut?'ÇIXILIR...':'ÇIXIŞ'}</a>
     </nav>
     <div className="relative mt-6 overflow-hidden rounded-3xl border border-gold/20 bg-[radial-gradient(circle_at_20%_10%,rgba(255,179,0,.25),transparent_34%),linear-gradient(135deg,rgba(138,46,255,.28),rgba(0,0,0,.9))] p-5">
       <div className="absolute -right-7 bottom-0 text-7xl opacity-25">🎮</div>
@@ -261,6 +261,7 @@ function App(){
   const [profile,setProfile]=React.useState(fallbackProfile);
   const [message,setMessage]=React.useState(null);
   const [showProducts,setShowProducts]=React.useState(false);
+  const [loggingOut,setLoggingOut]=React.useState(false);
   const games=[
     {name:'Free Fire',image:'https://dl.dir.freefiremobile.com/common/web_event/official2/dist/client/img/full_logo.969f536.png'},
     {name:'PUBG Mobile',image:'https://cdn.cloudflare.steamstatic.com/steam/apps/578080/header.jpg'},
@@ -286,6 +287,7 @@ function App(){
     if(form.password || form.confirmPassword) await action('/api/password',{password:form.password,confirmPassword:form.confirmPassword});
   }
   async function logout(){
+    setLoggingOut(true);
     try{await apiRequest('/api/logout',{method:'POST',body:'{}'});}catch{}
     localStorage.removeItem('zelixToken');
     localStorage.removeItem('zelixUser');
@@ -297,7 +299,7 @@ function App(){
     <div className="fixed bottom-[-12rem] right-[-12rem] h-[36rem] w-[36rem] rounded-full bg-gold/15 blur-3xl"></div>
     <Topbar/>
     <div className="relative z-10 mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[320px_1fr] lg:px-8">
-      <Sidebar profile={profile} onAction={action} onLogout={logout} onShowProducts={setShowProducts} showProducts={showProducts}/>
+      <Sidebar profile={profile} onAction={action} onLogout={logout} onShowProducts={setShowProducts} showProducts={showProducts} loggingOut={loggingOut}/>
       <div className="space-y-6">
         {showProducts ? (
           <ProductsPanel games={games} selected={selected} onToggle={toggle}/>
