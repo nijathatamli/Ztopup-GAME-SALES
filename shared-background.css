@@ -91,3 +91,10 @@ body::after {
   from { transform: translateY(105vh) scale(0.7); }
   to { transform: translateY(-10vh) scale(1.4); }
 }
+
+/* Common page content container */
+.main {
+  width: min(1220px, 100%);
+  margin: 0 auto;
+  padding: 30px clamp(16px, 4vw, 64px) 54px;
+}

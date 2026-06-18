@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tez-tez Verilən Suallar (FAQ) | ZTopUp</title>
+<meta name="description" content="ZTopUp FAQ - sifarişlər, ödənişlər, balans, hesab təhlükəsizliyi və məhsul çatdırılması ilə bağlı tez-tez verilən suallar və cavablar." />
+<meta property="og:title" content="Tez-tez Verilən Suallar (FAQ) | ZTopUp" />
+<meta property="og:description" content="ZTopUp FAQ - sifarişlər, ödənişlər, balans, hesab təhlükəsizliyi və məhsul çatdırılması ilə bağlı suallar və cavablar." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://ztopup.az/faq.html" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@600;700;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shared-background.css">
+<style>
+  .page-hero {
+    position: relative;
+    border: var(--line);
+    border-radius: 28px;
+    overflow: hidden;
+    padding: 42px clamp(24px, 4vw, 58px);
+    background:
+      radial-gradient(circle at 55% 42%, rgba(0,200,255,.18), transparent 22%),
+      radial-gradient(circle at 79% 42%, rgba(138,46,255,.42), transparent 34%),
+      linear-gradient(112deg, rgba(18,9,46,.96), rgba(5,5,5,.86) 54%, rgba(4,7,13,.98));
+    box-shadow: 0 28px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08);
+    margin-bottom: 32px;
+  }
+  .page-hero::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    background: linear-gradient(115deg, rgba(255,179,0,.24), transparent 28%, rgba(0,200,255,.28) 58%, transparent 76%, rgba(138,46,255,.34));
+    opacity: .72;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    padding: 1px;
+    pointer-events: none;
+  }
+  .page-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 13px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,200,255,.35);
+    color: var(--blue);
+    background: rgba(0,200,255,.09);
+    box-shadow: var(--blue-glow);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .14em;
+    font-family: 'Orbitron', 'Rajdhani', sans-serif;
+  }
+  .page-title {
+    margin-top: 20px;
+    font-size: clamp(32px, 5vw, 52px);
+    line-height: .95;
+    font-weight: 900;
+    color: #fff;
+    font-family: 'Orbitron', 'Rajdhani', sans-serif;
+  }
+  .page-title span {
+    color: var(--gold);
+    text-shadow: var(--gold-glow);
+  }
+  .page-subtitle {
+    margin-top: 14px;
+    color: var(--muted);
+    font-size: 17px;
+    max-width: 680px;
+    line-height: 1.6;
+  }
+
+  /* FAQ Accordion */
+  .faq-section {
+    display: grid;
+    gap: 16px;
+  }
+  .faq-group {
+    border: var(--line);
+    border-radius: 24px;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035));
+    backdrop-filter: blur(16px);
+    box-shadow: 0 18px 45px rgba(0,0,0,.28);
+  }
+  .faq-group-title {
+    font-family: 'Orbitron', 'Rajdhani', sans-serif;
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--gold);
+    padding: 22px 28px;
+    border-bottom: var(--line);
+    background: rgba(255,179,0,.06);
+  }
+  .faq-item {
+    border-bottom: var(--line);
+  }
+  .faq-item:last-child {
+    border-bottom: none;
+  }
+  .faq-question {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 28px;
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    transition: .22s ease;
+    font-family: 'Inter', sans-serif;
+  }
+  .faq-question:hover {
+    background: rgba(255,255,255,.04);
+    color: var(--gold);
+  }
+  .faq-question .icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(255,179,0,.35);
+    color: var(--gold);
+    background: rgba(255,179,0,.08);
+    font-size: 18px;
+    font-weight: 900;
+    flex-shrink: 0;
+    transition: .25s ease;
+  }
+  .faq-item.active .faq-question .icon {
+    transform: rotate(45deg);
+    background: var(--gold);
+    color: #120a00;
+    box-shadow: var(--gold-glow);
+  }
+  .faq-answer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.35s ease, padding 0.35s ease;
+    padding: 0 28px;
+  }
+  .faq-item.active .faq-answer {
+    padding: 0 28px 22px;
+  }
+  .faq-answer p,
+  .faq-answer li {
+    color: rgba(255,255,255,.72);
+    font-size: 15px;
+    line-height: 1.7;
+    margin-bottom: 10px;
+  }
+  .faq-answer ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 12px;
+  }
+  .faq-answer li {
+    position: relative;
+    padding-left: 18px;
+  }
+  .faq-answer li::before {
+    content: "—";
+    position: absolute;
+    left: 0;
+    color: var(--gold);
+  }
+  .faq-answer a {
+    color: var(--gold);
+    text-decoration: none;
+  }
+  .faq-answer a:hover {
+    text-decoration: underline;
+  }
+  @media (max-width: 620px) {
+    .page-hero { padding: 28px 20px; border-radius: 22px; }
+    .faq-group { border-radius: 20px; }
+    .faq-question { padding: 18px 20px; font-size: 15px; }
+    .faq-group-title { padding: 18px 20px; }
+    .faq-answer { padding: 0 20px; }
+    .faq-item.active .faq-answer { padding: 0 20px 18px; }
+  }
+</style>
+</head>
+<body>
+  <div class="particles">
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+  </div>
+  <script src="/header.js" defer></script>
+
+  <main class="main">
+    <section class="page-hero">
+      <div class="page-kicker">❓ FAQ</div>
+      <h1 class="page-title">Tez-tez Verilən <span>Suallar</span></h1>
+      <p class="page-subtitle">ZTopUp platforması, sifarişlər, ödənişlər, balans əməliyyatları və oyun xidmətləri ilə bağlı ən çox verilən sualların cavablarını burada tapa bilərsiniz.</p>
+    </section>
+
+    <section class="faq-section">
+      <!-- Sifarişlər -->
+      <div class="faq-group">
+        <div class="faq-group-title">Sifarişlər və Çatdırılma</div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Sifarişim nə qədər müddətə tamamlanır?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Əksər məhsullar ödəniş təsdiqindən sonra 1-15 dəqiqə ərzində çatdırılır. Bəzi xüsusi kampaniyalar, yüksək həcmli sifarişlər və ya texniki profilaktika işləri çatdırılma vaxtını uzada bilər. Həmin hallarda sifarişin vəziyyəti profil səhifənizdə və ya dəstək komandası tərəfindən izah edilir.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Məhsul hesabıma gəlməyib, nə etməliyəm?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Əvvəlcə aşağıdakı məlumatları yoxlayın:</p>
+            <ul>
+              <li>Sifariş verərkən oyun ID və istifadəçi adını düzgün daxil etdiyinizə əmin olun.</li>
+              <li>Profil səhifənizdə sifarişin statusunu yoxlayın.</li>
+              <li>Oyun hesabınızda gözləmə qutusu və ya bildirişləri yoxlayın.</li>
+            </ul>
+            <p>Əgər hələ də məhsul əks olunmayıbsa, dəstək xidmətinə sifariş nömrənizi və ödəniş qəbzinizi göndərərək müraciət edin.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>PUBG Mobile UC necə yüklənir?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>PUBG Mobile UC sifarişi vermək üçün PUBG məhsul səhifəsinə daxil olun, istədiyiniz UC paketini seçin, oyun hesabınızın ID nömrəsini daxil edin və ödənişi tamamlayın. Ödəniş təsdiqləndikdən sonra UC balansı qısa müddət ərzində hesabınıza yüklənir.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Free Fire Diamond necə alınır?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Free Fire Diamond əldə etmək üçün Free Fire məhsul səhifəsinə keçin, lazımi Diamond paketini seçin, oyun ID-nizi daxil edin və ödəniş edin. Diamond-lar çatdırıldıqdan sonra oyun daxilində balansınızı yoxlaya bilərsiniz.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ödənişlər -->
+      <div class="faq-group">
+        <div class="faq-group-title">Ödənişlər və Balans</div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Balansıma pul necə əlavə edə bilərəm?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Profil səhifənizə daxil olun, "Balans artır" bölməsini seçin, məbləği daxil edin və ödənişi tamamlayın. Ödəniş uğurlu olduqdan sonra məbləğ avtomatik balansınıza əlavə olunur. Əlavə olaraq, saytda birbaşa məhsul sifarişi verərkən də ödəniş edə bilərsiniz.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Ödəniş uğursuz olarsa nə etməliyəm?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Ödəniş uğursuz olduqda aşağıdakı addımları yoxlayın:</p>
+            <ul>
+              <li>Kart balansınızın və ya ödəniş hesabınızın kifayət qədər olduğundan əmin olun.</li>
+              <li>Bank kartı məlumatlarını düzgün daxil etdiyinizi yoxlayın.</li>
+              <li>Bankınızdan ödənişin bloklanmadığını dəqiqləşdirin.</li>
+              <li>Başqa bir ödəniş üsulu ilə yenidən cəhd edin.</li>
+            </ul>
+            <p>Problem davam edərsə, dəstək xidmətinə müraciət edin.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Ödəniş təhlükəsizdirmi?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Bəli, bütün ödənişlər SSL/TLS şifrələmə ilə qorunan rəsmi ödəniş provayderləri vasitəsilə həyata keçirilir. Bank kartı məlumatları bizim serverlərimizdə saxlanılmır. Platforma müntəzəm olaraq təhlükəsizlik yoxlamalarından keçir və fırıldaqçılıq əməliyyatlarına qarşı müşahidə aparılır.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Pul geri qaytarılırmı?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Əgər ödəniş uğurlu olub, lakin məhsul texniki səbəblərdən təqdim edilməyibsə, məbləğ balansınıza qaytarılır. Uğurla çatdırılmış və istifadə olunmuş virtual məhsullar üçün geri qaytarma mümkün deyil. Hər bir geri qaytarma sorğusu fərdi olaraq nəzərdən keçirilir.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hesab -->
+      <div class="faq-group">
+        <div class="faq-group-title">Hesab və Təhlükəsizlik</div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Hesabım niyə yoxlanışa düşüb?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Hesabınız aşağıdakı səbəblərə görə müvəqqəti yoxlanışa düşə bilər:</p>
+            <ul>
+              <li>Saxta və ya şübhəli ödəniş fəaliyyəti aşkarlanması.</li>
+              <li>Çoxsaylı uğursuz giriş cəhdləri.</li>
+              <li>Qeydiyyat məlumatlarının doğrulanması tələbi.</li>
+              <li>Şikayət və ya mübahisə olması.</li>
+            </ul>
+            <p>Yoxlanış zamanı hesab funksiyaları məhdudlaşdırıla bilər. Dəstək komandası ilə əlaqə saxlayaraq vəziyyəti aydınlaşdıra bilərsiniz.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Şifrəmi unutmuşam, nə etməliyəm?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Hal-hazırda şifrə bərpası funksiyası yaxınlıqda əlavə olunacaq. Əgər hesabınıza daxil ola bilmirsinizsə, <a href="mailto:support@ztopup.az">support@ztopup.az</a> ünvanına qeydiyyatda istifadə etdiyiniz e-poçt ünvanını göndərərək kömək istəyin.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Hesab məlumatlarımı necə qorumalıyam?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <ul>
+              <li>Güclü və unikal şifrə istifadə edin.</li>
+              <li>Hesab məlumatlarınızı heç kimlə paylaşmayın.</li>
+              <li>Şübhəli e-poçtlar, linklər və ya mesajlara ehtiyatlı yanaşın.</li>
+              <li>Hesabınızda şübhəli fəaliyyət görsəniz, dərhal dəstək xidmətinə müraciət edin.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dəstək -->
+      <div class="faq-group">
+        <div class="faq-group-title">Dəstək və Əlaqə</div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Dəstək xidməti ilə necə əlaqə saxlaya bilərəm?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Bizimlə aşağıdakı ünvanlar vasitəsilə əlaqə saxlaya bilərsiniz:</p>
+            <ul>
+              <li><strong>E-poçt:</strong> <a href="mailto:support@ztopup.az">support@ztopup.az</a></li>
+              <li><strong>Telefon:</strong> <a href="tel:+994101239523">+994 10 123 95 23</a></li>
+              <li><strong>Sosial şəbəkələr:</strong> WhatsApp, Instagram, TikTok, YouTube</li>
+            </ul>
+            <p>Müraciətinizə ən qısa müddətdə cavab verilməyə çalışılır.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Sifariş tarixçəmi harada görə bilərəm?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Sifariş tarixçənizi profil səhifənizdəki "Sifarişlər" bölməsində görə bilərsiniz. Hər sifarişin statusu, tarixi, məbləği və çatdırılma məlumatları burada əks olunur.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Platformada hansı oyunlar üçün xidmət var?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>ZTopUp platformasında PUBG Mobile, Free Fire, Brawl Stars, Clash of Clans, Clash Royale, Roblox, eFootball, Call of Duty Mobile və digər populyar oyunlar üçün balans və virtual məhsul xidmətləri mövcuddur. Məhsul kataloqu müntəzəm olaraq genişləndirilir.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Kampaniya və endirimlər olurmu?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Bəli, müntəzəm olaraq xüsusi kampaniyalar, endirimlər və bonus təklifləri təqdim edilir. Yeniliklərdən xəbərdar olmaq üçün sosial media kanallarımızı izləyin və platformaya daimi olaraq baş çəkin.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Əlavə -->
+      <div class="faq-group">
+        <div class="faq-group-title">Ümumi Məlumat</div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>ZTopUp nədir?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>ZTopUp — Azərbaycan istifadəçiləri üçün nəzərdə tutulmuş rəqəmsal oyun xidmətləri platformasıdır. Platforma oyun balansı yükləmə, virtual məhsul satışı və sürətli çatdırılma xidmətləri təqdim edir.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Sifariş vermək üçün qeydiyyatdan keçmək lazımdır?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Bəzi məhsullar üçün qeydiyyatdan keçmədən sifariş vermək mümkündür, lakin profil yaratmaqla sifariş tarixçənizi izləyə, balansınızı idarə edə və xüsusi təkliflərdən yararlana bilərsiniz.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>Ödəniş qəbzini saxlamalıyam?</span>
+            <span class="icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Bəli, ödəniş qəbzinizi və ya tranzaksiya məlumatlarınızı sifariş tamamlanana qədər saxlamağınız tövsiyə olunur. Hər hansı bir problemlə qarşılaşdıqda bu məlumatlar sifarişinizi tez bir zamanda tapmağa kömək edir.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="content-grid" style="margin-top:32px;">
+      <article class="content-card" style="text-align:center;">
+        <h2 style="justify-content:center;">Hələ də sualınız var?</h2>
+        <p>Dəstək komandamız hər zaman köməyə hazırdır. Bizimlə əlaqə saxlayın.</p>
+        <p style="margin-top:16px;">
+          <a href="mailto:support@ztopup.az" style="color:var(--gold); text-decoration:none; font-weight:700;">support@ztopup.az</a> •
+          <a href="tel:+994101239523" style="color:var(--gold); text-decoration:none; font-weight:700;">+994 10 123 95 23</a>
+        </p>
+      </article>
+    </section>
+  </main>
+
+  <script src="/footer.js" defer></script>
+  <script>
+    document.querySelectorAll('.faq-question').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const item = btn.parentElement;
+        const active = item.classList.contains('active');
+        // Close all in same group
+        item.closest('.faq-group').querySelectorAll('.faq-item').forEach(i => {
+          i.classList.remove('active');
+          i.querySelector('.faq-question').setAttribute('aria-expanded', 'false');
+          i.querySelector('.faq-answer').style.maxHeight = null;
+        });
+        if (!active) {
+          item.classList.add('active');
+          btn.setAttribute('aria-expanded', 'true');
+          const answer = item.querySelector('.faq-answer');
+          answer.style.maxHeight = answer.scrollHeight + 'px';
+        }
+      });
+    });
+  </script>
+</body>
+</html>
