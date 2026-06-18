@@ -165,7 +165,7 @@ function Auth(){
     setMsg({ type:'info', text: mode === 'login' ? 'Giriş yoxlanılır...' : 'Hesab yaradılır...' });
     try {
       const body = mode === 'login' ? { identifier: form.identifier, password: form.password, remember } : { ...form, username: form.username.toLowerCase(), terms };
-      const response = await fetch(mode === 'login' ? '/api/login' : '/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+      const response = await fetch(mode === 'login' ? '/api/login' : '/api/register', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
       const data = await response.json();
       if(!response.ok) throw Error(data.message || 'Əməliyyat uğursuz oldu.');
       localStorage.setItem('zelixToken', data.token);

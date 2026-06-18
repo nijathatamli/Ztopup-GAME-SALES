@@ -3,6 +3,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
 require('dotenv').config();
+const admin = require('./admin-routes');
 // Allow injecting DATABASE_URL at runtime via process.env.__INJECT_DATABASE_URL
 if (process.env.__INJECT_DATABASE_URL && !process.env.DATABASE_URL) {
   process.env.DATABASE_URL = process.env.__INJECT_DATABASE_URL;
@@ -134,9 +135,13 @@ async function dbEnsureSchema() {
   await pool.query(`CREATE TABLE IF NOT EXISTS sessions (
     token VARCHAR(64) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP + INTERVAL '7 days'
   )`);
+  await pool.query('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP');
+  await pool.query("UPDATE sessions SET expires_at = created_at + INTERVAL '7 days' WHERE expires_at IS NULL");
   await pool.query('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)');
 
   await pool.query(`CREATE TABLE IF NOT EXISTS tickets (
     id VARCHAR(36) PRIMARY KEY,
@@ -618,19 +623,24 @@ async function dbUpdatePassword(id, passwordHash) {
   await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, id]);
 }
 
-async function dbCreateSession(token, userId) {
-  await pool.query('INSERT INTO sessions (token, user_id) VALUES ($1, $2)', [token, userId]);
+async function dbCreateSession(token, userId, maxAgeSeconds = 604800) {
+  const expiresAt = new Date(Date.now() + maxAgeSeconds * 1000);
+  await pool.query('INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3)', [token, userId, expiresAt]);
 }
 
 async function dbGetSessionUserId(token) {
   if (!token) return null;
-  const { rows } = await pool.query('SELECT user_id FROM sessions WHERE token = $1 LIMIT 1', [token]);
+  const { rows } = await pool.query('SELECT user_id FROM sessions WHERE token = $1 AND expires_at > NOW() LIMIT 1', [token]);
   return rows[0] ? rows[0].user_id : null;
 }
 
 async function dbDeleteSession(token) {
   if (!token) return;
   await pool.query('DELETE FROM sessions WHERE token = $1', [token]);
+}
+
+async function dbCleanupSessions() {
+  await pool.query("DELETE FROM sessions WHERE expires_at < NOW() - INTERVAL '1 day'");
 }
 
 // ==========================================
@@ -828,10 +838,18 @@ async function requireAdmin(request, response) {
 }
 
 async function logout(request, response) {
-  const token = getAuthToken(request);
-  if (token) await dbDeleteSession(token);
-  clearAuthCookie(response, request);
-  sendJson(response, 200, { message: 'Çıxış edildi.' });
+  try {
+    const token = getAuthToken(request);
+    // Invalidate opaque session token from DB store (JWTs are stateless).
+    if (token) await dbDeleteSession(token);
+    // Always clear the auth cookie so the browser session ends.
+    clearAuthCookie(response, request);
+    return sendJson(response, 200, { success: true, message: 'Çıxış edildi.' });
+  } catch (error) {
+    // Even on error, clear the cookie to avoid a stuck session.
+    try { clearAuthCookie(response, request); } catch {}
+    return sendJson(response, 500, { success: false, message: 'Çıxış zamanı xəta baş verdi.' });
+  }
 }
 
 async function profile(request, response) {
@@ -1037,6 +1055,19 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/api/deposits') return await listMyDeposits(request, response);
     if (request.method === 'GET' && request.url.startsWith('/api/admin/avatar/requests')) return await adminListAvatarRequests(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/avatar/approve') return await adminApproveAvatar(request, response);
+
+    // Admin panel routes (Node.js replacement for PHP admin)
+    if (request.url === '/admin/login' || request.url.startsWith('/admin/login?')) return await admin.rLogin(request, response, pool);
+    if (request.url === '/admin/logout') return await admin.rLogout(request, response);
+    if (request.url === '/admin/' || request.url === '/admin' || request.url.startsWith('/admin/?')) return await admin.rDashboard(request, response, pool);
+    if (request.url === '/admin/users' || request.url.startsWith('/admin/users?')) return await admin.rUsers(request, response, pool);
+    if (request.url === '/admin/orders' || request.url.startsWith('/admin/orders?')) return await admin.rOrders(request, response, pool);
+    if (request.url === '/admin/products' || request.url.startsWith('/admin/products?')) return await admin.rProducts(request, response, pool);
+    if (request.url === '/admin/balance-requests' || request.url.startsWith('/admin/balance-requests?')) return await admin.rBalanceRequests(request, response, pool);
+    if (request.url === '/admin/deposits' || request.url.startsWith('/admin/deposits?')) return await admin.rDeposits(request, response, pool);
+    if (request.url === '/admin/avatars' || request.url.startsWith('/admin/avatars?')) return await admin.rAvatars(request, response, pool);
+    if (request.url === '/admin/receipt' || request.url.startsWith('/admin/receipt?')) return await admin.rReceipt(request, response, pool);
+
     if (request.method === 'GET') return await serveStatic(request, response);
 
     response.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -1051,6 +1082,7 @@ const server = http.createServer(async (request, response) => {
   try {
     await pool.query('SELECT NOW()');
     await dbEnsureSchema();
+    await admin.ensureAdminSchema(pool);
     console.log('PostgreSQL connection successful.');
   } catch (error) {
     console.error(`[Warn] PostgreSQL connection failed. Details: ${error.message}`);
@@ -1059,5 +1091,8 @@ const server = http.createServer(async (request, response) => {
     server.listen(PORT, () => {
       console.log(`ZELIX TOPUP running at http://localhost:${PORT}`);
     });
+    // Periodically clean up expired sessions (every 1 hour)
+    setInterval(() => { dbCleanupSessions().catch(() => {}); }, 60 * 60 * 1000);
+    dbCleanupSessions().catch(() => {});
   }
 })();
