@@ -7,10 +7,16 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@700;800;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<script>
+  window.__panel=function(title,detail){var r=document.getElementById('root')||document.body;r.innerHTML='<div style="max-width:600px;margin:12vh auto;padding:28px;border:1px solid #f87171;border-radius:18px;background:#1a0c0c;color:#fecaca;font-family:Inter,Arial,sans-serif;text-align:center"><h2 style="color:#ffb300;font-weight:900;margin:0 0 10px">'+title+'</h2><p style="line-height:1.6;margin:0 0 8px">'+detail+'</p><p style="line-height:1.6;margin:14px 0 0;color:#fca5a5">İnternet bağlantınızı yoxlayın və səhifəni yeniləyin.</p></div>';};
+  window.__cdnError=function(n){window.__panel('Səhifə yüklənə bilmədi','Lazımi resurs yüklənmədi: <b>'+n+'</b> (CDN bloklanmış ola bilər).');};
+  window.addEventListener('error',function(ev){var r=document.getElementById('root');if(ev&&ev.message&&r&&r.children.length===0){window.__panel('Səhifədə xəta baş verdi','<code style="color:#fca5a5">'+String(ev.message)+'</code>');}});
+  window.addEventListener('load',function(){setTimeout(function(){var r=document.getElementById('root');if(r&&r.children.length===0){if(typeof React==='undefined'||typeof ReactDOM==='undefined'){window.__cdnError('React/ReactDOM');}else if(!(window.Babel)){window.__cdnError('Babel');}}},2500);});
+</script>
 <script src="https://cdn.tailwindcss.com"></script>
-<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" onerror="window.__cdnError('React')"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" onerror="window.__cdnError('ReactDOM')"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js" onerror="window.__cdnError('Babel')"></script>
 <script>
   tailwind.config = {
     theme: {

@@ -17,6 +17,7 @@ $rows = $stmt->fetchAll();
 
 $flash = '';
 if (is_post()) {
+    csrf_check();
     $id = $_POST['id'] ?? '';
     $newStatus = $_POST['status'] ?? '';
     if ($id && in_array($newStatus, ['pending','processing','completed','failed'], true)) {
@@ -50,6 +51,7 @@ if (is_post()) {
       <a href="/admin/users.php">İstifadəçilər</a>
       <a href="/admin/products.php">Məhsullar</a>
       <a href="/admin/balance-requests.php">Balans</a>
+      <a href="/admin/deposits.php">Depozitlər</a>
       <a href="/admin/avatars.php">Avatar</a>
       <a href="/admin/logout.php">Çıxış</a>
     </nav>
@@ -94,6 +96,7 @@ if (is_post()) {
             <td><?= htmlspecialchars($r['status'], ENT_QUOTES, 'UTF-8') ?></td>
             <td>
               <form method="post" style="display:flex;gap:6px;align-items:center">
+                <?= csrf_field() ?>
                 <input type="hidden" name="id" value="<?= htmlspecialchars($r['id'], ENT_QUOTES, 'UTF-8') ?>" />
                 <select name="status">
                   <?php foreach (['pending','processing','completed','failed'] as $s): ?>

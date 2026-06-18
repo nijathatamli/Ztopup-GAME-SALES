@@ -8,6 +8,7 @@ $stats = [
     'total_orders' => 0,
     'pending_bal' => 0,
     'pending_avatar' => 0,
+    'pending_deposit' => 0,
     'revenue' => '0.00',
 ];
 
@@ -16,6 +17,7 @@ try {
     $stats['total_orders'] = (int)$pdo->query('SELECT COUNT(*) FROM orders')->fetchColumn();
     $stats['pending_bal'] = (int)$pdo->query("SELECT COUNT(*) FROM balance_requests WHERE LOWER(status)='pending'")->fetchColumn();
     $stats['pending_avatar'] = (int)$pdo->query("SELECT COUNT(*) FROM avatar_requests WHERE LOWER(status)='pending'")->fetchColumn();
+    $stats['pending_deposit'] = (int)$pdo->query("SELECT COUNT(*) FROM deposit_requests WHERE LOWER(status)='pending'")->fetchColumn();
     $stats['revenue'] = (string)($pdo->query("SELECT COALESCE(TO_CHAR(SUM(CASE WHEN LOWER(type)='credit' THEN amount ELSE 0 END), 'FM999999990.00'), '0.00') FROM transactions")->fetchColumn() ?: '0.00');
 } catch (Throwable $e) {
     // leave defaults
@@ -48,6 +50,7 @@ try {
       <a href="/admin/orders.php">Sifarişlər</a>
       <a href="/admin/products.php">Məhsullar</a>
       <a href="/admin/balance-requests.php">Balans Sorğuları</a>
+      <a href="/admin/deposits.php">Depozit Sorğuları</a>
       <a href="/admin/avatars.php">Avatar Sorğuları</a>
       <a href="/admin/logout.php">Çıxış</a>
     </nav>
@@ -69,6 +72,10 @@ try {
     <div class="card">
       <div>Gözləyən Avatar</div>
       <div class="stat"><?= $stats['pending_avatar'] ?></div>
+    </div>
+    <div class="card">
+      <div>Gözləyən Depozit</div>
+      <div class="stat"><?= $stats['pending_deposit'] ?></div>
     </div>
     <div class="card">
       <div>Gəlir (Yekun kreditlər)</div>

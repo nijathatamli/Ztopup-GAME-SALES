@@ -195,6 +195,20 @@ async function dbEnsureSchema() {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_avatar_user_id ON avatar_requests(user_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_avatar_status ON avatar_requests(status)');
 
+  // Deposit (receipt upload) requests
+  await pool.query(`CREATE TABLE IF NOT EXISTS deposit_requests (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    receipt_image VARCHAR(255) NOT NULL,
+    requested_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending | approved | rejected
+    admin_note TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    approved_at TIMESTAMP
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_user_id ON deposit_requests(user_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_status ON deposit_requests(status)');
+
   // Admins table (in addition to users.is_admin flag)
   await pool.query(`CREATE TABLE IF NOT EXISTS admins (
     user_id VARCHAR(36) PRIMARY KEY,
@@ -240,9 +254,9 @@ async function dbEnsureSchema() {
     await pool.query(
       'INSERT INTO products (id, game, title, price, image_url, available, delivery_minutes) VALUES ($1,$2,$3,$4,$5,$6,$7),($8,$9,$10,$11,$12,$13,$14),($15,$16,$17,$18,$19,$20,$21)',
       [
-        pid1,'PUBG Mobile','60 UC',2.99,'https://i.imgur.com/1qfQbVZ.png',true,5,
-        pid2,'PUBG Mobile','325 UC',14.49,'https://i.imgur.com/1qfQbVZ.png',true,5,
-        pid3,'PUBG Mobile','660 UC',27.99,'https://i.imgur.com/1qfQbVZ.png',true,5
+        pid1,'PUBG Mobile','60 UC',2.99,'/assets/pubg-uc.png',true,5,
+        pid2,'PUBG Mobile','325 UC',14.49,'/assets/pubg-uc.png',true,5,
+        pid3,'PUBG Mobile','660 UC',27.99,'/assets/pubg-uc.png',true,5
       ]
     );
   }
@@ -351,6 +365,123 @@ async function adminListUsers(request, response) {
     const { rows } = await pool.query('SELECT id, username, name, first_name, last_name, email, balance, created_at, is_admin FROM users ORDER BY created_at DESC');
     return sendJson(response, 200, { users: rows });
   }
+}
+
+// ==========================================
+// DEPOSIT RECEIPT UPLOADS
+// ==========================================
+
+const UPLOADS_DIR = path.join(__dirname, 'uploads', 'receipts');
+const ALLOWED_RECEIPT_TYPES = { 'image/jpeg': '.jpg', 'image/png': '.png' };
+const MAX_RECEIPT_BYTES = 5 * 1024 * 1024; // 5 MB
+
+function readRequestBuffer(request, maxBytes = MAX_RECEIPT_BYTES + 1_000_000) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    request.on('data', chunk => {
+      size += chunk.length;
+      if (size > maxBytes) { request.destroy(); reject(new Error('Request body is too large')); return; }
+      chunks.push(chunk);
+    });
+    request.on('end', () => resolve(Buffer.concat(chunks)));
+    request.on('error', reject);
+  });
+}
+
+function detectImageType(buf) {
+  if (buf.length >= 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47
+    && buf[4] === 0x0D && buf[5] === 0x0A && buf[6] === 0x1A && buf[7] === 0x0A) return 'image/png';
+  return null;
+}
+
+function parseMultipart(buffer, boundary) {
+  const result = { fields: {}, files: {} };
+  const delimiter = Buffer.from('--' + boundary);
+  const headerSep = Buffer.from('\r\n\r\n');
+  let start = buffer.indexOf(delimiter);
+  if (start === -1) return result;
+  start += delimiter.length;
+  while (start < buffer.length) {
+    if (buffer[start] === 0x2D && buffer[start + 1] === 0x2D) break; // closing '--'
+    if (buffer[start] === 0x0D && buffer[start + 1] === 0x0A) start += 2;
+    const next = buffer.indexOf(delimiter, start);
+    if (next === -1) break;
+    const part = buffer.slice(start, next - 2); // strip trailing CRLF
+    const headerEnd = part.indexOf(headerSep);
+    if (headerEnd !== -1) {
+      const headerStr = part.slice(0, headerEnd).toString('utf8');
+      const body = part.slice(headerEnd + headerSep.length);
+      const nameMatch = /name="([^"]*)"/i.exec(headerStr);
+      const filenameMatch = /filename="([^"]*)"/i.exec(headerStr);
+      const ctMatch = /Content-Type:\s*([^\r\n]+)/i.exec(headerStr);
+      const name = nameMatch ? nameMatch[1] : '';
+      if (filenameMatch) {
+        result.files[name] = { filename: filenameMatch[1], contentType: ctMatch ? ctMatch[1].trim() : '', data: body };
+      } else if (name) {
+        result.fields[name] = body.toString('utf8');
+      }
+    }
+    start = next + delimiter.length;
+  }
+  return result;
+}
+
+async function submitDeposit(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const contentType = request.headers['content-type'] || '';
+  if (!contentType.includes('multipart/form-data')) {
+    return sendJson(response, 400, { message: 'multipart/form-data tələb olunur.' });
+  }
+  const bMatch = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
+  const boundary = bMatch ? (bMatch[1] || bMatch[2]).trim() : '';
+  if (!boundary) return sendJson(response, 400, { message: 'Form sərhədi tapılmadı.' });
+
+  let buffer;
+  try {
+    buffer = await readRequestBuffer(request);
+  } catch {
+    return sendJson(response, 413, { message: 'Fayl çox böyükdür (maksimum 5MB).' });
+  }
+
+  const parsed = parseMultipart(buffer, boundary);
+  const file = parsed.files.receipt || parsed.files.file;
+  if (!file || !file.data || file.data.length === 0) {
+    return sendJson(response, 400, { message: 'Qəbz şəkli tələb olunur.' });
+  }
+  if (file.data.length > MAX_RECEIPT_BYTES) {
+    return sendJson(response, 413, { message: 'Fayl 5MB-dan böyük ola bilməz.' });
+  }
+  const detected = detectImageType(file.data);
+  if (!detected || !ALLOWED_RECEIPT_TYPES[detected]) {
+    return sendJson(response, 415, { message: 'Yalnız JPG və ya PNG faylları qəbul olunur.' });
+  }
+
+  let amount = Number(parsed.fields.amount || 0);
+  if (!Number.isFinite(amount) || amount < 0) amount = 0;
+  amount = Math.round(amount * 100) / 100;
+
+  const ext = ALLOWED_RECEIPT_TYPES[detected];
+  const filename = `${crypto.randomUUID()}${ext}`;
+  await fs.mkdir(UPLOADS_DIR, { recursive: true });
+  await fs.writeFile(path.join(UPLOADS_DIR, filename), file.data);
+
+  const id = crypto.randomUUID();
+  await pool.query(
+    'INSERT INTO deposit_requests (id, user_id, receipt_image, requested_amount, status) VALUES ($1,$2,$3,$4,$5)',
+    [id, user.id, filename, amount, 'pending']
+  );
+  sendJson(response, 201, { message: 'Depozit sorğunuz göndərildi. Admin təsdiqini gözləyin.', requestId: id });
+}
+
+async function listMyDeposits(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const { rows } = await pool.query(
+    'SELECT id, receipt_image, requested_amount, status, admin_note, created_at, approved_at FROM deposit_requests WHERE user_id = $1 ORDER BY created_at DESC',
+    [user.id]
+  );
+  sendJson(response, 200, { deposits: rows });
 }
 
 const mimeTypes = {
@@ -871,6 +1002,8 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/api/admin/balance/adjust') return await adminAdjustBalance(request, response);
     if (request.method === 'POST' && request.url === '/api/avatar/requests') return await submitAvatarRequest(request, response);
     if (request.method === 'GET' && request.url === '/api/avatar/requests') return await listMyAvatarRequests(request, response);
+    if (request.method === 'POST' && request.url === '/api/deposits') return await submitDeposit(request, response);
+    if (request.method === 'GET' && request.url === '/api/deposits') return await listMyDeposits(request, response);
     if (request.method === 'GET' && request.url.startsWith('/api/admin/avatar/requests')) return await adminListAvatarRequests(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/avatar/approve') return await adminApproveAvatar(request, response);
     if (request.method === 'GET') return await serveStatic(request, response);

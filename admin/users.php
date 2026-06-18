@@ -17,6 +17,7 @@ $users = $stmt->fetchAll();
 
 $flash = '';
 if (is_post()) {
+    csrf_check();
     $userId = $_POST['user_id'] ?? '';
     $amount = (float)($_POST['amount'] ?? '0');
     $reason = trim($_POST['reason'] ?? 'Admin adjustment');
@@ -67,6 +68,7 @@ if (is_post()) {
       <a href="/admin/orders.php">Sifarişlər</a>
       <a href="/admin/products.php">Məhsullar</a>
       <a href="/admin/balance-requests.php">Balans</a>
+      <a href="/admin/deposits.php">Depozitlər</a>
       <a href="/admin/avatars.php">Avatar</a>
       <a href="/admin/logout.php">Çıxış</a>
     </nav>
@@ -102,6 +104,7 @@ if (is_post()) {
             <td><?= e($u['created_at']) ?></td>
             <td>
               <form method="post" style="display:flex;gap:8px;align-items:center">
+                <?= csrf_field() ?>
                 <input type="hidden" name="user_id" value="<?= e($u['id']) ?>" />
                 <input type="number" step="0.01" name="amount" placeholder="Məbləğ (+/-)" />
                 <input type="text" name="reason" placeholder="Qeyd" />
