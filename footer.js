@@ -25,6 +25,10 @@
     ],
     contact: {
       title: 'Bizimlə Əlaqə',
+      details: [
+        { type: 'phone', label: '+994 10 123 95 23', href: 'tel:+994101239523', icon: 'phone' },
+        { type: 'email', label: 'support@ztopup.az', href: 'mailto:support@ztopup.az', icon: 'email' },
+      ],
       channels: [
         { name: 'WhatsApp', href: 'https://wa.me/994501234567', icon: 'whatsapp' },
         { name: 'Instagram', href: 'https://instagram.com/ztopup.az', icon: 'instagram' },
@@ -47,6 +51,10 @@
       '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.5-1.43 2.89 2.89 0 01-.38-1.44 2.89 2.89 0 012.88-2.88c.3 0 .59.05.86.13V8.32a6.2 6.2 0 00-.86-.06A6.22 6.22 0 002.5 14.48a6.22 6.22 0 006.22 6.22 6.22 6.22 0 006.22-6.22V9.13a8.14 8.14 0 004.77 1.53V7.21a4.85 4.85 0 01-2.12-.52z"/></svg>',
     youtube:
       '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>',
+    phone:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.4 12.4 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.4 12.4 0 002.81.7A2 2 0 0122 16.92z"/></svg>',
+    email:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M22 6l-10 7L2 6"/></svg>',
     arrow:
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>',
   };
@@ -240,6 +248,46 @@
     .ztopup-footer-social a:hover::before { opacity: 1; }
     .ztopup-footer-social a:hover svg { transform: scale(1.12); }
 
+    /* ---- CONTACT DETAILS (phone / email) ---- */
+    .ztopup-footer-contact {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .ztopup-footer-contact a {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: rgba(255,255,255,0.78);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.22s ease;
+      width: fit-content;
+    }
+    .ztopup-footer-contact a .icon-wrap {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: grid; place-items: center;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      color: var(--z-gold);
+      transition: all 0.22s ease;
+      flex-shrink: 0;
+    }
+    .ztopup-footer-contact a .icon-wrap svg {
+      width: 18px; height: 18px;
+    }
+    .ztopup-footer-contact a:hover {
+      color: #fff;
+    }
+    .ztopup-footer-contact a:hover .icon-wrap {
+      border-color: rgba(255,179,0,0.35);
+      background: rgba(255,179,0,0.1);
+      box-shadow: var(--z-gold-glow);
+    }
+
     /* ---- BOTTOM BAR ---- */
     .ztopup-footer-bottom {
       position: relative;
@@ -291,6 +339,13 @@
       )
       .join('');
 
+    const contactDetails = CONFIG.contact.details
+      .map(
+        (d) =>
+          `<a href="${d.href}" aria-label="${d.type === 'phone' ? 'Telefon' : 'Email'}"><span class="icon-wrap">${ICONS[d.icon]}</span><span>${d.label}</span></a>`
+      )
+      .join('');
+
     const socialLinks = CONFIG.contact.channels
       .map(
         (ch) =>
@@ -322,6 +377,9 @@
             <!-- CONTACT -->
             <div class="ztopup-footer-section">
               <h3 class="ztopup-footer-title">${CONFIG.contact.title}</h3>
+              <div class="ztopup-footer-contact" aria-label="Telefon və email">
+                ${contactDetails}
+              </div>
               <div class="ztopup-footer-social" aria-label="Sosial şəbəkələr">
                 ${socialLinks}
               </div>

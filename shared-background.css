@@ -1,0 +1,93 @@
+/* ==========================================================
+   ZTopUp Shared Background Theme
+   Include this file on every public page for a consistent
+   dark gaming background with gradient accents and particles.
+   ========================================================== */
+
+:root {
+  --black: #050505;
+  --panel: rgba(17,17,26,0.72);
+  --panel-strong: #101018;
+  --gold: #ffb300;
+  --purple: #8a2eff;
+  --blue: #00c8ff;
+  --white: #ffffff;
+  --muted: rgba(255,255,255,0.62);
+  --line: 1px solid rgba(255,255,255,0.09);
+  --gold-glow: 0 0 18px rgba(255,179,0,0.45);
+  --purple-glow: 0 0 28px rgba(138,46,255,0.48);
+  --blue-glow: 0 0 26px rgba(0,200,255,0.42);
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  min-height: 100vh;
+  background: var(--black);
+  color: var(--white);
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+}
+
+/* Base gradient background */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 8%, rgba(138,46,255,0.26), transparent 28%),
+    radial-gradient(circle at 84% 16%, rgba(0,200,255,0.18), transparent 26%),
+    radial-gradient(circle at 50% 88%, rgba(255,179,0,0.12), transparent 32%),
+    linear-gradient(180deg, #050505 0%, #080711 48%, #050505 100%);
+  z-index: -3;
+}
+
+/* Subtle grid overlay */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.22;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 52px 52px;
+  mask-image: linear-gradient(to bottom, black, transparent 80%);
+  z-index: -2;
+}
+
+/* Floating particles */
+.particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: -1;
+}
+
+.particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--blue);
+  box-shadow: 0 0 14px var(--blue);
+  opacity: 0.7;
+  animation: float 9s linear infinite;
+}
+
+.particle:nth-child(1) { left: 8%; animation-delay: -1s; animation-duration: 11s; }
+.particle:nth-child(2) { left: 18%; background: var(--gold); box-shadow: 0 0 14px var(--gold); animation-delay: -3s; }
+.particle:nth-child(3) { left: 34%; animation-delay: -6s; animation-duration: 12s; }
+.particle:nth-child(4) { left: 49%; background: var(--purple); box-shadow: 0 0 14px var(--purple); animation-delay: -2s; }
+.particle:nth-child(5) { left: 63%; animation-delay: -5s; animation-duration: 10s; }
+.particle:nth-child(6) { left: 78%; background: var(--gold); box-shadow: 0 0 14px var(--gold); animation-delay: -7s; }
+.particle:nth-child(7) { left: 91%; background: var(--purple); box-shadow: 0 0 14px var(--purple); animation-delay: -4s; animation-duration: 13s; }
+
+@keyframes float {
+  from { transform: translateY(105vh) scale(0.7); }
+  to { transform: translateY(-10vh) scale(1.4); }
+}
