@@ -528,10 +528,35 @@ function verifyPassword(password, storedPassword) {
   return original.length === hash.length && crypto.timingSafeEqual(original, hash);
 }
 
+function parseCookies(request) {
+  const raw = request.headers.cookie || '';
+  const cookies = {};
+  raw.split(';').forEach(pair => {
+    const [key, ...rest] = pair.trim().split('=');
+    if (key) cookies[key] = decodeURIComponent(rest.join('='));
+  });
+  return cookies;
+}
+
 function getAuthToken(request) {
   const auth = request.headers.authorization || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7);
+  const cookies = parseCookies(request);
+  if (cookies.auth_token) return cookies.auth_token;
   return null;
+}
+
+function cookieFlags(request, maxAgeSeconds = 604800) {
+  const isHttps = request.headers['x-forwarded-proto'] === 'https';
+  return `HttpOnly; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax${isHttps ? '; Secure' : ''}`;
+}
+
+function setAuthCookie(response, request, token, maxAgeSeconds = 604800) {
+  response.setHeader('Set-Cookie', `auth_token=${encodeURIComponent(token)}; ${cookieFlags(request, maxAgeSeconds)}`);
+}
+
+function clearAuthCookie(response, request) {
+  response.setHeader('Set-Cookie', `auth_token=; ${cookieFlags(request, 0)}`);
 }
 
 function sanitizeUser(user) {
@@ -705,6 +730,7 @@ async function register(request, response) {
 
   const token = crypto.randomBytes(32).toString('hex');
   await dbCreateSession(token, user.id);
+  setAuthCookie(response, request, token);
   sendJson(response, 201, { message: 'Qeydiyyat uğurludur.', token, user: sanitizeUser(user) });
 }
 
@@ -720,6 +746,7 @@ async function login(request, response) {
 
   const token = crypto.randomBytes(32).toString('hex');
   await dbCreateSession(token, user.id);
+  setAuthCookie(response, request, token);
   sendJson(response, 200, { message: 'Giriş uğurludur.', token, user: sanitizeUser(user) });
 }
 
@@ -769,6 +796,7 @@ async function authRegister(request, response) {
   };
   await dbInsertUser(user);
   const token = signJwt(user.id, true);
+  setAuthCookie(response, request, token);
   sendJson(response, 201, { message: 'Qeydiyyat uğurludur.', token, user: sanitizeUser(user) });
 }
 
@@ -780,6 +808,8 @@ async function authLogin(request, response) {
   const user = await dbFindUserByIdentifier(identifier);
   if (!user || !verifyPassword(password, user.password_hash)) return sendJson(response, 401, { message: 'Email və ya şifrə yanlışdır.' });
   const token = signJwt(user.id, remember);
+  const maxAge = remember ? 604800 : 86400;
+  setAuthCookie(response, request, token, maxAge);
   sendJson(response, 200, { message: 'Giriş uğurludur.', token, user: sanitizeUser(user) });
 }
 
@@ -800,6 +830,7 @@ async function requireAdmin(request, response) {
 async function logout(request, response) {
   const token = getAuthToken(request);
   if (token) await dbDeleteSession(token);
+  clearAuthCookie(response, request);
   sendJson(response, 200, { message: 'Çıxış edildi.' });
 }
 
