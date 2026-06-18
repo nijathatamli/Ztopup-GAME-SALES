@@ -72,6 +72,7 @@ async function apiRequest(url, options = {}) {
   const token = localStorage.getItem('zelixToken');
   const response = await fetch(url, {
     ...options,
+    credentials: 'same-origin', // send the HttpOnly auth cookie
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -326,7 +327,7 @@ function DepositPanel(){
       const fd=new FormData();
       if(amount) fd.append('amount',amount);
       fd.append('receipt',file);
-      const res=await fetch('/api/deposits',{method:'POST',headers:token?{Authorization:`Bearer ${token}`}:{},body:fd});
+      const res=await fetch('/api/deposits',{method:'POST',credentials:'same-origin',headers:token?{Authorization:`Bearer ${token}`}:{},body:fd});
       const data=await res.json();
       if(!res.ok) throw new Error(data.message||'Yükləmə uğursuz oldu.');
       setMsg({type:'ok',text:data.message});
@@ -420,16 +421,35 @@ function App(){
     if(form.password || form.confirmPassword) await action('/api/password',{password:form.password,confirmPassword:form.confirmPassword});
   }
   async function logout(){
+    if(loggingOut)return; // prevent multiple clicks while in progress
     setLoggingOut(true);
-    try{await apiRequest('/api/logout',{method:'POST',body:'{}'});}catch{}
-    localStorage.removeItem('zelixToken');
-    localStorage.removeItem('zelixUser');
-    location.href='/login-v2.html';
+    setMessage(null);
+    try{
+      const res=await fetch('/api/logout',{
+        method:'POST',
+        credentials:'same-origin',
+        headers:{'Content-Type':'application/json',...(localStorage.getItem('zelixToken')?{Authorization:`Bearer ${localStorage.getItem('zelixToken')}`}:{})},
+        body:'{}'
+      });
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||data.success===false){
+        throw new Error(data.message||'Çıxış uğursuz oldu. Yenidən cəhd edin.');
+      }
+      // Success: clear client state then redirect.
+      localStorage.removeItem('zelixToken');
+      localStorage.removeItem('zelixUser');
+      location.href='/login-v2.html';
+    }catch(error){
+      // Failure: show error and restore button state.
+      setMessage({type:'bad',text:error.message||'Çıxış zamanı xəta baş verdi.'});
+      setLoggingOut(false);
+    }
   }
   return <main className="relative min-h-screen bg-black text-white">
     <div className="fixed inset-0 grid-bg opacity-20"></div>
     <div className="fixed left-[-12rem] top-[-12rem] h-[34rem] w-[34rem] rounded-full bg-violet/25 blur-3xl"></div>
     <div className="fixed bottom-[-12rem] right-[-12rem] h-[36rem] w-[36rem] rounded-full bg-gold/15 blur-3xl"></div>
+    {message && <div className={`fixed right-4 top-4 z-50 rounded-2xl border px-4 py-3 text-sm font-bold shadow-lg ${message.type==='bad'?'border-red-400/40 bg-red-500/15 text-red-200':'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'}`}>{message.text}</div>}
     <Topbar/>
     <div className="relative z-10 mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[320px_1fr] lg:px-8">
       <Sidebar profile={profile} onAction={action} onLogout={logout} onShowProducts={(v)=>{setShowDeposit(false);setShowProducts(v);}} onShowDeposit={()=>{setShowProducts(false);setShowDeposit(true);}} showProducts={showProducts} showDeposit={showDeposit} loggingOut={loggingOut}/>

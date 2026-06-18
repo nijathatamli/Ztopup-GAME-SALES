@@ -1044,6 +1044,7 @@
   async function authRequest(url, data){
     const response = await fetch(url, {
       method: 'POST',
+      credentials: 'same-origin', // store the HttpOnly auth cookie
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
@@ -1099,20 +1100,46 @@
     }
   });
 
+  let loggingOut = false;
   logoutBtn.addEventListener('click', async ()=>{
-    const token = localStorage.getItem('zelixToken');
-    if (token) {
-      await fetch('/api/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    if (loggingOut) return; // prevent multiple clicks while in progress
+    loggingOut = true;
+    const originalText = logoutBtn.textContent;
+    logoutBtn.disabled = true;
+    logoutBtn.style.opacity = '0.7';
+    logoutBtn.style.cursor = 'wait';
+    logoutBtn.textContent = 'Çıxılır...';
+    try {
+      const token = localStorage.getItem('zelixToken');
+      const res = await fetch('/api/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: '{}'
+      });
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || 'Çıxış uğursuz oldu.');
+      }
+      // Success: clear client state and update UI.
+      localStorage.removeItem('zelixToken');
+      setAuthUser(null);
+    } catch (error) {
+      // Failure: restore button and inform the user.
+      alert(error.message || 'Çıxış zamanı xəta baş verdi. Yenidən cəhd edin.');
+    } finally {
+      loggingOut = false;
+      logoutBtn.disabled = false;
+      logoutBtn.style.opacity = '';
+      logoutBtn.style.cursor = '';
+      logoutBtn.textContent = originalText;
     }
-    localStorage.removeItem('zelixToken');
-    setAuthUser(null);
   });
 
   async function restoreSession(){
     const token = localStorage.getItem('zelixToken');
-    if (!token) return;
     try {
-      const response = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch('/api/me', { credentials: 'same-origin', ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) });
       if (!response.ok) throw new Error('Session expired');
       const result = await response.json();
       setAuthUser(result.user);

@@ -71,7 +71,7 @@
 <script>
 async function api(url, opts={}){
   const token = localStorage.getItem('zelixToken');
-  const res = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', ...(token?{Authorization:`Bearer ${token}`}:{}) } });
+  const res = await fetch(url, { ...opts, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...(token?{Authorization:`Bearer ${token}`}:{}) } });
   const text = await res.text();
   let data = {};
   try{ data = text ? JSON.parse(text) : {}; }catch{ throw new Error('Server cavabı JSON deyil'); }
