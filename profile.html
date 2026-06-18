@@ -7,10 +7,16 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Orbitron:wght@700;800;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<script>
+  window.__panel=function(title,detail){var r=document.getElementById('root')||document.body;r.innerHTML='<div style="max-width:600px;margin:12vh auto;padding:28px;border:1px solid #f87171;border-radius:18px;background:#1a0c0c;color:#fecaca;font-family:Inter,Arial,sans-serif;text-align:center"><h2 style="color:#ffb300;font-weight:900;margin:0 0 10px">'+title+'</h2><p style="line-height:1.6;margin:0 0 8px">'+detail+'</p><p style="line-height:1.6;margin:14px 0 0;color:#fca5a5">İnternet bağlantınızı yoxlayın və səhifəni yeniləyin.</p></div>';};
+  window.__cdnError=function(n){window.__panel('Səhifə yüklənə bilmədi','Lazımi resurs yüklənmədi: <b>'+n+'</b> (CDN bloklanmış ola bilər).');};
+  window.addEventListener('error',function(ev){var r=document.getElementById('root');if(ev&&ev.message&&r&&r.children.length===0){window.__panel('Səhifədə xəta baş verdi','<code style="color:#fca5a5">'+String(ev.message)+'</code>');}});
+  window.addEventListener('load',function(){setTimeout(function(){var r=document.getElementById('root');if(r&&r.children.length===0){if(typeof React==='undefined'||typeof ReactDOM==='undefined'){window.__cdnError('React/ReactDOM');}else if(!(window.Babel)){window.__cdnError('Babel');}}},2500);});
+</script>
 <script src="https://cdn.tailwindcss.com"></script>
-<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" onerror="window.__cdnError('React')"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" onerror="window.__cdnError('ReactDOM')"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js" onerror="window.__cdnError('Babel')"></script>
 <script>
   tailwind.config = {
     theme: {
@@ -104,7 +110,7 @@ function Topbar(){
   </header>
 }
 
-function Sidebar({profile,onAction,onLogout,onShowProducts,showProducts,loggingOut}){
+function Sidebar({profile,onAction,onLogout,onShowProducts,onShowDeposit,showProducts,showDeposit,loggingOut}){
   return <aside className="glass flex h-fit flex-col rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] lg:sticky lg:top-24">
     <div className="flex flex-col items-center text-center">
       <Avatar/>
@@ -116,6 +122,7 @@ function Sidebar({profile,onAction,onLogout,onShowProducts,showProducts,loggingO
       <Metric icon="⚡" value={Number(profile.mapBalance || 0).toLocaleString('en-US')} label="XƏRİTƏ BALANS"/>
     </div>
     <button onClick={()=>onAction('/api/topup',{amount:100})} className="mt-5 rounded-2xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-5 py-4 font-orbitron text-sm font-black tracking-[.14em] text-black shadow-gold transition hover:-translate-y-1">TOPUP ET</button>
+    <button onClick={onShowDeposit} className={`mt-3 rounded-2xl border px-5 py-4 font-orbitron text-sm font-black tracking-[.14em] shadow-gold transition hover:-translate-y-1 ${showDeposit?'border-gold bg-gold text-black':'border-gold/40 bg-gold/10 text-gold hover:bg-gold hover:text-black'}`}>BALANS YÜKLƏ</button>
     <nav className="mt-6 space-y-2">
       {navItems.map(item => <a key={item[1]} href={item[2]}
         onClick={
@@ -124,7 +131,7 @@ function Sidebar({profile,onAction,onLogout,onShowProducts,showProducts,loggingO
           item[1]==='PROFİL' ? (e=>{e.preventDefault();onShowProducts(false);}) :
           undefined
         }
-        className={`flex items-center gap-3 rounded-2xl px-4 py-3 font-rajdhani text-sm font-black tracking-[.08em] transition ${(item[1]==='PROFİL' && !showProducts) || (item[1]==='MƏHSULLAR' && showProducts)?'bg-violet/18 text-white shadow-violet ring-1 ring-violet/25':'text-white/58 hover:bg-white/5 hover:text-white'}`}><span className="text-lg">{item[0]}</span>{item[1]}</a>)}
+        className={`flex items-center gap-3 rounded-2xl px-4 py-3 font-rajdhani text-sm font-black tracking-[.08em] transition ${(item[1]==='PROFİL' && !showProducts && !showDeposit) || (item[1]==='MƏHSULLAR' && showProducts)?'bg-violet/18 text-white shadow-violet ring-1 ring-violet/25':'text-white/58 hover:bg-white/5 hover:text-white'}`}><span className="text-lg">{item[0]}</span>{item[1]}</a>)}
       <a href="#" onClick={e=>{e.preventDefault();if(!loggingOut)onLogout();}} className={`flex items-center gap-3 rounded-2xl px-4 py-3 font-rajdhani text-sm font-black tracking-[.08em] transition ${loggingOut?'opacity-70 cursor-wait':'text-red-300 hover:bg-red-500/10 hover:text-red-200'}`}><span className="text-lg">{loggingOut?'⏳':'⏻'}</span>{loggingOut?'ÇIXILIR...':'ÇIXIŞ'}</a>
     </nav>
     <div className="relative mt-6 overflow-hidden rounded-3xl border border-gold/20 bg-[radial-gradient(circle_at_20%_10%,rgba(255,179,0,.25),transparent_34%),linear-gradient(135deg,rgba(138,46,255,.28),rgba(0,0,0,.9))] p-5">
@@ -280,6 +287,100 @@ function OrdersPanel(){
   </section>
 }
 
+function statusBadge(status){
+  const s=String(status||'').toLowerCase();
+  if(s==='approved') return 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/25';
+  if(s==='rejected') return 'bg-red-500/15 text-red-300 border border-red-400/25';
+  return 'bg-yellow-500/10 text-amber-300 border border-amber-400/25';
+}
+function statusLabel(status){
+  const s=String(status||'').toLowerCase();
+  if(s==='approved') return 'Təsdiqləndi';
+  if(s==='rejected') return 'Rədd edildi';
+  return 'Gözləyir';
+}
+
+function DepositPanel(){
+  const [amount,setAmount]=React.useState('');
+  const [file,setFile]=React.useState(null);
+  const [busy,setBusy]=React.useState(false);
+  const [msg,setMsg]=React.useState(null);
+  const [deposits,setDeposits]=React.useState([]);
+  const fileRef=React.useRef(null);
+
+  function load(){
+    apiRequest('/api/deposits').then(d=>setDeposits(d.deposits||[])).catch(()=>{});
+  }
+  React.useEffect(load,[]);
+
+  async function submit(e){
+    e.preventDefault();
+    setMsg(null);
+    if(!file){ setMsg({type:'bad',text:'Zəhmət olmasa qəbz şəklini seçin.'}); return; }
+    const okType=['image/jpeg','image/png'].includes(file.type);
+    if(!okType){ setMsg({type:'bad',text:'Yalnız JPG və ya PNG faylları qəbul olunur.'}); return; }
+    if(file.size>5*1024*1024){ setMsg({type:'bad',text:'Fayl 5MB-dan böyük ola bilməz.'}); return; }
+    setBusy(true);
+    try{
+      const token=localStorage.getItem('zelixToken');
+      const fd=new FormData();
+      if(amount) fd.append('amount',amount);
+      fd.append('receipt',file);
+      const res=await fetch('/api/deposits',{method:'POST',headers:token?{Authorization:`Bearer ${token}`}:{},body:fd});
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.message||'Yükləmə uğursuz oldu.');
+      setMsg({type:'ok',text:data.message});
+      setAmount(''); setFile(null); if(fileRef.current) fileRef.current.value='';
+      load();
+    }catch(err){ setMsg({type:'bad',text:err.message}); }
+    finally{ setBusy(false); }
+  }
+
+  return <section className="glass rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] sm:p-7">
+    <div className="mb-4 flex items-center justify-between">
+      <h3 className="font-orbitron text-xl font-black text-gold">Balans Artırma (Depozit)</h3>
+      <span className="rounded-full border border-violet/30 bg-violet/10 px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] text-violet">Qəbz Yüklə</span>
+    </div>
+    <p className="mb-5 text-sm text-white/55">Ödəniş qəbzinizi yükləyin. Admin təsdiqlədikdən sonra balansınız artırılacaq. (JPG/PNG, maksimum 5MB)</p>
+    <form onSubmit={submit} className="grid gap-4 sm:grid-cols-[1fr_1.4fr_auto] sm:items-end">
+      <label className="block">
+        <span className="mb-2 block font-rajdhani text-sm font-black tracking-[.12em] text-white/58">Məbləğ (₼, istəyə bağlı)</span>
+        <input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="məs. 50"
+          className="h-14 w-full rounded-2xl border border-white/10 bg-black/35 px-4 text-sm font-bold text-white outline-none transition focus:border-blue focus:shadow-blue placeholder:text-white/30"/>
+      </label>
+      <label className="block">
+        <span className="mb-2 block font-rajdhani text-sm font-black tracking-[.12em] text-white/58">Qəbz şəkli (JPG/PNG)</span>
+        <input ref={fileRef} type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" onChange={e=>setFile(e.target.files[0]||null)}
+          className="h-14 w-full rounded-2xl border border-white/10 bg-black/35 px-3 py-3 text-sm text-white/70 outline-none file:mr-3 file:rounded-xl file:border-0 file:bg-gold/20 file:px-4 file:py-2 file:font-rajdhani file:font-black file:text-gold"/>
+      </label>
+      <button type="submit" disabled={busy}
+        className={`h-14 rounded-2xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-6 font-orbitron text-sm font-black tracking-[.14em] text-black shadow-gold transition hover:-translate-y-1 ${busy?'opacity-60 cursor-wait':''}`}>{busy?'YÜKLƏNİR...':'GÖNDƏR'}</button>
+    </form>
+    {msg&&<div className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-bold ${msg.type==='bad'?'border-red-400/30 bg-red-500/10 text-red-200':'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'}`}>{msg.text}</div>}
+
+    <div className="mt-6">
+      <h4 className="mb-3 font-rajdhani text-sm font-black tracking-[.16em] text-white/55">SORĞULARIM</h4>
+      <div className="grid gap-3">
+        {deposits.length===0 ? (
+          <div className="rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-white/60">Hələ depozit sorğusu yoxdur.</div>
+        ) : deposits.map(d=>
+          <div key={d.id} className="flex flex-wrap items-center gap-4 rounded-2xl border border-white/10 bg-white/[.03] p-4">
+            <a href={`/uploads/receipts/${d.receipt_image}`} target="_blank" rel="noreferrer">
+              <img src={`/uploads/receipts/${d.receipt_image}`} alt="qəbz" className="h-16 w-16 rounded-xl border border-white/10 object-cover"/>
+            </a>
+            <div className="flex-1">
+              <div className="font-orbitron text-sm font-black text-gold">{Number(d.requested_amount||0).toFixed(2)} ₼</div>
+              <div className="text-xs text-white/45">{String(d.created_at||'').slice(0,19).replace('T',' ')}</div>
+              {d.admin_note&&<div className="mt-1 text-xs text-white/60">Qeyd: {d.admin_note}</div>}
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-rajdhani font-black ${statusBadge(d.status)}`}>{statusLabel(d.status)}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  </section>
+}
+
 function Footer(){
   return <footer className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-white/10 py-6 text-sm text-white/45 md:flex-row">
     <div>© 2025 ZELIX TOPUP. Bütün hüquqlar qorunur.</div>
@@ -292,6 +393,7 @@ function App(){
   const [profile,setProfile]=React.useState(fallbackProfile);
   const [message,setMessage]=React.useState(null);
   const [showProducts,setShowProducts]=React.useState(false);
+  const [showDeposit,setShowDeposit]=React.useState(false);
   const [loggingOut,setLoggingOut]=React.useState(false);
   const games=[
     {name:'Free Fire',image:'https://dl.dir.freefiremobile.com/common/web_event/official2/dist/client/img/full_logo.969f536.png'},
@@ -330,10 +432,15 @@ function App(){
     <div className="fixed bottom-[-12rem] right-[-12rem] h-[36rem] w-[36rem] rounded-full bg-gold/15 blur-3xl"></div>
     <Topbar/>
     <div className="relative z-10 mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[320px_1fr] lg:px-8">
-      <Sidebar profile={profile} onAction={action} onLogout={logout} onShowProducts={setShowProducts} showProducts={showProducts} loggingOut={loggingOut}/>
+      <Sidebar profile={profile} onAction={action} onLogout={logout} onShowProducts={(v)=>{setShowDeposit(false);setShowProducts(v);}} onShowDeposit={()=>{setShowProducts(false);setShowDeposit(true);}} showProducts={showProducts} showDeposit={showDeposit} loggingOut={loggingOut}/>
       <div className="space-y-6">
         {showProducts ? (
           <ProductsPanel games={games} selected={selected} onToggle={toggle}/>
+        ) : showDeposit ? (
+          <>
+            <Hero/>
+            <DepositPanel/>
+          </>
         ) : (
           <>
             <Hero/>

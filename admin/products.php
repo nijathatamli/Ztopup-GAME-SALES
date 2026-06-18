@@ -4,6 +4,7 @@ require_admin();
 
 $flash = '';
 if (is_post()) {
+    csrf_check();
     $action = $_POST['action'] ?? '';
     try {
         if ($action === 'create') {
@@ -80,6 +81,7 @@ $rows = $pdo->query('SELECT * FROM products ORDER BY created_at DESC')->fetchAll
 
     <div class="card">
       <form method="post" style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+        <?= csrf_field() ?>
         <input type="hidden" name="action" value="create" />
         <input type="text" name="game" placeholder="Oyun" required />
         <input type="text" name="title" placeholder="Başlıq" required />
@@ -103,7 +105,6 @@ $rows = $pdo->query('SELECT * FROM products ORDER BY created_at DESC')->fetchAll
             <th>Mövcud</th>
             <th>Anbar</th>
             <th>Əməliyyat</th>
-            <td><?= (int)($r['stock'] ?? 0) ?></td>
           </tr>
         </thead>
         <tbody>
@@ -114,8 +115,10 @@ $rows = $pdo->query('SELECT * FROM products ORDER BY created_at DESC')->fetchAll
             <td><?= htmlspecialchars($r['title'], ENT_QUOTES, 'UTF-8') ?></td>
             <td>₼ <?= number_format((float)$r['price'], 2) ?></td>
             <td><?= $r['available'] ? 'Bəli' : 'Xeyr' ?></td>
+            <td><?= (int)($r['stock'] ?? 0) ?></td>
             <td>
               <form method="post" style="display:flex;gap:6px;flex-wrap:wrap">
+                <?= csrf_field() ?>
                 <input type="hidden" name="action" value="update" />
                 <input type="hidden" name="id" value="<?= htmlspecialchars($r['id'], ENT_QUOTES, 'UTF-8') ?>" />
                 <input type="text" name="game" value="<?= htmlspecialchars($r['game'], ENT_QUOTES, 'UTF-8') ?>" />
@@ -128,6 +131,7 @@ $rows = $pdo->query('SELECT * FROM products ORDER BY created_at DESC')->fetchAll
                 <button type="submit">Saxla</button>
               </form>
               <form method="post" onsubmit="return confirm('Silinsin?')">
+                <?= csrf_field() ?>
                 <input type="hidden" name="action" value="delete" />
                 <input type="hidden" name="id" value="<?= htmlspecialchars($r['id'], ENT_QUOTES, 'UTF-8') ?>" />
                 <button type="submit">Sil</button>

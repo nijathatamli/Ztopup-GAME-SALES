@@ -4,6 +4,7 @@ require_admin();
 
 $flash = '';
 if (is_post()) {
+    csrf_check();
     $id = $_POST['id'] ?? '';
     $action = $_POST['action'] ?? '';
     if ($id && in_array($action, ['approve','reject'], true)) {
@@ -78,6 +79,7 @@ $rows = $stmt->fetchAll();
       <a href="/admin/users.php">İstifadəçilər</a>
       <a href="/admin/orders.php">Sifarişlər</a>
       <a href="/admin/products.php">Məhsullar</a>
+      <a href="/admin/deposits.php">Depozitlər</a>
       <a href="/admin/avatars.php">Avatar</a>
       <a href="/admin/logout.php">Çıxış</a>
     </nav>
@@ -118,6 +120,7 @@ $rows = $stmt->fetchAll();
               <td>
                 <?php if (strtolower($r['status'])==='pending'): ?>
                 <form method="post" style="display:flex;gap:6px;align-items:center">
+                  <?= csrf_field() ?>
                   <input type="hidden" name="id" value="<?= htmlspecialchars($r['id'], ENT_QUOTES, 'UTF-8') ?>" />
                   <button name="action" value="approve" type="submit">Təsdiq</button>
                   <button name="action" value="reject" type="submit">Rədd</button>

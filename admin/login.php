@@ -7,6 +7,7 @@ if (isset($_SESSION['admin_id'])) {
 
 $error = '';
 if (is_post()) {
+    csrf_check();
     $identifier = trim($_POST['identifier'] ?? '');
     $password = $_POST['password'] ?? '';
 
@@ -51,6 +52,7 @@ if (is_post()) {
     <h1>Admin Giriş</h1>
     <?php if ($error): ?><div class="error"><?= e($error) ?></div><?php endif; ?>
     <form method="post" autocomplete="on">
+      <?= csrf_field() ?>
       <label for="identifier">Email və ya İstifadəçi Adı</label>
       <input type="text" id="identifier" name="identifier" required />
 
