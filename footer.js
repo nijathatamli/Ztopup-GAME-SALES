@@ -18,7 +18,7 @@
         'ZTopUp — oyun dünyasının etibarlı tərəfdaşı. Sürətli, təhlükəsiz və güvənilir rəqəmsal oyun xidmətləri ilə sizə ən yaxşı müştəri təcrübəsini təqdim edirik. Ani çatdırılma, rəqabətli qiymətlər və 7/24 dəstək komandamız hər zaman xidmətinizdədir.',
     },
     corporate: [
-      { label: 'Qaydalar və Qanunlar', href: '/terms.html' },
+      { label: 'Qaydalar və Qanunlar', href: '/rules.html' },
       { label: 'Məxfilik Siyasəti', href: '/privacy.html' },
       { label: 'İstifadə Şərtləri', href: '/terms.html' },
       { label: 'Tez-tez Verilən Suallar (FAQ)', href: '/faq.html' },
