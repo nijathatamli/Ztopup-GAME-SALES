@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@600;700;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/shared-background.css">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/header.js" defer></script>
   <script>
     tailwind.config = {
       theme: {
@@ -47,24 +48,6 @@
     <span class="particle"></span>
     <span class="particle"></span>
   </div>
-  <header class="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur-2xl">
-    <div class="mx-auto flex max-w-[1400px] items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-      <a href="/" class="flex items-center gap-3">
-        <div class="grid h-11 w-11 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-200 via-gold to-orange-500 shadow-gold">
-          <img class="h-[145%] w-[145%] object-cover drop-shadow-[0_0_10px_rgba(255,179,0,.55)]" src="assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"/>
-        </div>
-        <div>
-          <div class="font-orbitron text-lg font-black tracking-[.18em] text-gold sm:text-xl">ZELIX TOPUP</div>
-          <div class="font-rajdhani text-[10px] font-bold tracking-[.32em] text-white/40">PREMIUM GAMING MARKET</div>
-        </div>
-      </a>
-      <nav class="hidden gap-2 sm:flex">
-        <a href="/" class="rounded-xl px-3 py-2 text-sm font-bold text-white/65 hover:bg-white/5 hover:text-white">Əsas</a>
-        <a href="/mehsullar.html" class="rounded-xl px-3 py-2 text-sm font-bold text-gold bg-gold/10 border border-gold/30 shadow-gold">Məhsullar</a>
-        <a href="/profile.html" class="rounded-xl px-3 py-2 text-sm font-bold text-white/65 hover:bg-white/5 hover:text-white">Profil</a>
-      </nav>
-    </div>
-  </header>
 
   <main class="relative min-h-[calc(100vh-64px)]">
     <div class="absolute inset-0 grid-bg opacity-20"></div>
@@ -78,62 +61,39 @@
   </main>
 
   <script>
-    const games = [
-      {
-        name: 'Free Fire',
-        className: 'freefire',
-        image: 'https://dl.dir.freefiremobile.com/common/web_event/official2/dist/client/img/full_logo.969f536.png'
-      },
-      {
-        name: 'PUBG Mobile',
-        className: 'pubg',
-        image: 'https://cdn.cloudflare.steamstatic.com/steam/apps/578080/header.jpg'
-      },
-      {
-        name: 'Brawl Stars',
-        className: 'brawl',
-        image: 'https://1000logos.net/wp-content/uploads/2021/02/Brawl-Stars-logo.png'
-      },
-      {
-        name: 'Clash of Clans',
-        className: 'coc',
-        image: 'https://1000logos.net/wp-content/uploads/2021/02/Clash-of-Clans-logo.png'
-      },
-      {
-        name: 'Clash Royale',
-        className: 'royale',
-        image: 'https://1000logos.net/wp-content/uploads/2021/04/Clash-Royale-logo.png'
-      },
-      {
-        name: 'Roblox',
-        className: 'roblox',
-        image: 'https://1000logos.net/wp-content/uploads/2017/09/Roblox-Logo.png'
-      },
-      {
-        name: 'eFootball',
-        className: 'football',
-        image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/EFootball_logo.svg/330px-EFootball_logo.svg.png'
-      },
-      {
-        name: 'Call of Duty',
-        className: 'cod',
-        image: 'https://1000logos.net/wp-content/uploads/2020/09/Call-of-Duty-Logo.png'
+    async function loadCategories(){
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '<div class="col-span-full flex justify-center py-12"><div class="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-gold"></div></div>';
+      try {
+        const res = await fetch('/api/categories');
+        const data = await res.json();
+        const cats = data.categories || [];
+        if (!cats.length) {
+          grid.innerHTML = '<div class="col-span-full text-center py-12 text-white/60">Kateqoriya yoxdur</div>';
+          return;
+        }
+        grid.innerHTML = cats.map(cat => {
+          const slug = cat.slug || cat.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          const img = cat.image_url || '/assets/zelix-generated-logo.svg';
+          return `
+            <a href="/category/${slug}" class="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#101018] p-0 shadow-[0_18px_50px_rgba(0,0,0,.32)] transition hover:-translate-y-0.5 hover:border-gold/30">
+              <div class="absolute inset-0 opacity-80" style="background: radial-gradient(circle at 50% 32%, rgba(255,179,0,.18), transparent 48%)"></div>
+              <div class="relative z-10 grid h-44 place-items-center">
+                <img src="${img}" alt="${cat.name}" class="max-h-28 w-auto object-contain transition group-hover:scale-105" loading="lazy" onerror="this.src='/assets/zelix-generated-logo.svg'"/>
+              </div>
+              <div class="relative z-10 flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
+                <div class="font-rajdhani text-sm font-black tracking-[.08em]">${cat.name}</div>
+                <div class="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-amber-200 via-gold to-orange-500 text-black shadow-gold">›</div>
+              </div>
+            </a>
+          `;
+        }).join('');
+      } catch (err) {
+        document.getElementById('grid').innerHTML = '<div class="col-span-full text-center py-12 text-white/60">Kateqoriyalar yüklənə bilmədi</div>';
+        console.error(err);
       }
-    ];
-
-    const grid = document.getElementById('grid');
-    grid.innerHTML = games.map(game => `
-      <a href="#" class="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#101018] p-0 shadow-[0_18px_50px_rgba(0,0,0,.32)] transition hover:-translate-y-0.5 hover:border-gold/30">
-        <div class="absolute inset-0 opacity-80" style="background: radial-gradient(circle at 50% 32%, rgba(255,179,0,.18), transparent 48%)"></div>
-        <div class="relative z-10 grid h-44 place-items-center">
-          <img src="${game.image}" alt="${game.name}" class="max-h-28 w-auto object-contain transition group-hover:scale-105" loading="lazy"/>
-        </div>
-        <div class="relative z-10 flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
-          <div class="font-rajdhani text-sm font-black tracking-[.08em]">${game.name}</div>
-          <div class="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-amber-200 via-gold to-orange-500 text-black shadow-gold">›</div>
-        </div>
-      </a>
-    `).join('');
+    }
+    loadCategories();
   </script>
   <script src="/footer.js" defer></script>
 </body>
