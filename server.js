@@ -214,12 +214,6 @@ async function dbEnsureSchema() {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_user_id ON deposit_requests(user_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_status ON deposit_requests(status)');
 
-  // Admins table (in addition to users.is_admin flag)
-  await pool.query(`CREATE TABLE IF NOT EXISTS admins (
-    user_id VARCHAR(36) PRIMARY KEY,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`);
-
   // Additional tables and columns for new features
   await pool.query(`CREATE TABLE IF NOT EXISTS products (
     id VARCHAR(36) PRIMARY KEY,
