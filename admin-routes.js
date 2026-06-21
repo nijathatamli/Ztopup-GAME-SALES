@@ -56,28 +56,48 @@ function parseCookies(r){const raw=r.headers.cookie||'',c={};raw.split(';').forE
 function setCookie(r,name,val,age=1800){r.setHeader('Set-Cookie',`${name}=${encodeURIComponent(val)}; HttpOnly; Path=/admin; Max-Age=${age}; SameSite=Lax`);}
 function clearCookie(r,name){r.setHeader('Set-Cookie',`${name}=; HttpOnly; Path=/admin; Max-Age=0; SameSite=Lax`);}
 function csrfToken(){return crypto.randomBytes(32).toString('hex');}
+
+const ADMIN_CREDENTIALS_FILE = path.join(__dirname, 'admin-credentials.json');
+function loadAdmins(){
+  try{
+    const raw = require('fs').readFileSync(ADMIN_CREDENTIALS_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    return Array.isArray(data.admins) ? data.admins : [];
+  }catch(e){
+    console.error('[Admin] Could not read admin-credentials.json:', e.message);
+    return [];
+  }
+}
+function findAdmin(identifier){
+  const id = String(identifier||'').trim().toLowerCase();
+  return loadAdmins().find(a => a.active !== false && (String(a.username||'').toLowerCase()===id || String(a.email||'').toLowerCase()===id)) || null;
+}
+function findAdminById(adminId){
+  return loadAdmins().find(a => String(a.id)===String(adminId)) || null;
+}
+
 function hashPw(pw){return bcrypt.hashSync(pw,10);}
 function verifyPw(pw,stored){if(!stored)return false;if(/^\$2[ayb]\$/.test(stored))return bcrypt.compareSync(pw,stored.replace(/^\$2y\$/,'$2a$'));const[salt,oh]=stored.split(':');if(!salt||!oh)return false;const h=crypto.scryptSync(pw,salt,64);const o=Buffer.from(oh,'hex');return o.length===h.length&&crypto.timingSafeEqual(o,h);}
 async function sendHtml(res,code,html){res.writeHead(code,{'Content-Type':'text/html; charset=utf-8'});res.end(html);}
 async function readBody(req){return new Promise((resolve,reject)=>{let b='';req.on('data',c=>{b+=c;if(b.length>1_000_000){req.destroy();reject(new Error('Too large'));}});req.on('end',()=>{try{resolve(JSON.parse(b));}catch{const o={};b.split('&').forEach(p=>{const[k,v]=p.split('=');if(k)o[decodeURIComponent(k)]=decodeURIComponent(v||'');});resolve(o);}});req.on('error',reject);});}
 
-async function getAdmin(req,pool){const c=parseCookies(req);const tok=c.admin_token||'';if(!tok)return null;const s=adminSessions.get(tok);if(!s)return null;if(Date.now()-s.createdAt>SESSION_TIMEOUT){adminSessions.delete(tok);return null;}s.createdAt=Date.now();const{rows}=await pool.query('SELECT id,username,email,active FROM admins WHERE id=$1 LIMIT 1',[s.adminId]);return rows[0]||null;}
+async function getAdmin(req,pool){const c=parseCookies(req);const tok=c.admin_token||'';if(!tok)return null;const s=adminSessions.get(tok);if(!s)return null;if(Date.now()-s.createdAt>SESSION_TIMEOUT){adminSessions.delete(tok);return null;}s.createdAt=Date.now();const a=findAdminById(s.adminId);if(!a||a.active===false)return null;return{id:a.id,username:a.username,email:a.email,active:a.active!==false};}
 async function requireAdmin(req,res,pool){const a=await getAdmin(req,pool);if(!a){res.writeHead(302,{Location:'/admin/login'});res.end();return null;}return a;}
 
 async function ensureAdminSchema(pool){
-  await pool.query(`CREATE TABLE IF NOT EXISTS admins (id SERIAL PRIMARY KEY,username TEXT UNIQUE NOT NULL,email TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,active BOOLEAN NOT NULL DEFAULT TRUE,last_login_at TIMESTAMP NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+  // Admin credentials are stored in admin-credentials.json (no SQL admins table needed).
   await pool.query(`CREATE TABLE IF NOT EXISTS balance_requests (id VARCHAR(36) PRIMARY KEY,user_id VARCHAR(36) NOT NULL,amount DECIMAL(10,2) NOT NULL,image_url TEXT NOT NULL,status VARCHAR(20) NOT NULL DEFAULT 'pending',reviewed_by TEXT NULL,reviewed_at TIMESTAMP NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_balance_user ON balance_requests(user_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_balance_status ON balance_requests(status)');
   await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS stock INTEGER NOT NULL DEFAULT 0');
-  const{rows}=await pool.query('SELECT COUNT(*)::int AS c FROM admins');
-  if(!rows[0]||rows[0].c===0){await pool.query('INSERT INTO admins(username,email,password_hash)VALUES($1,$2,$3)',['admin','admin@ztopup.az',hashPw('admin123')]);console.log('[Admin] Default admin created: admin / admin123');}
+  const admins = loadAdmins();
+  console.log(`[Admin] Loaded ${admins.length} admin(s) from admin-credentials.json`);
 }
 
 async function rLogin(req,res,pool){
   if(req.method==='GET'){const t=csrfToken();setCookie(res,'admin_csrf',t,3600);const html=`<!doctype html><html lang="az"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin Giriş</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0b12;color:#fff;font-family:Rajdhani,system-ui}.card{width:100%;max-width:420px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:24px}h1{font-size:22px;margin:0 0 16px}label{display:block;font-size:13px;color:#c9c9d1;margin:10px 0 6px}input{width:100%;background:#141427;border:1px solid rgba(255,255,255,.1);color:#fff;border-radius:10px;padding:10px 12px;outline:none;box-sizing:border-box}button{width:100%;margin-top:16px;background:#6c4df4;border:none;color:#fff;padding:12px 14px;border-radius:12px;font-weight:800;cursor:pointer}.error{margin-top:10px;background:rgba(255,99,71,.1);border:1px solid rgba(255,99,71,.3);padding:10px;border-radius:10px;color:#ffb3a7}</style></head><body><div class="card"><h1>Admin Giriş</h1><form method="post" autocomplete="on"><input type="hidden" name="csrf" value="${esc(t)}"/><label>Email və ya İstifadəçi Adı</label><input type="text" name="identifier" required/><label>Şifrə</label><input type="password" name="password" required/><button type="submit">Daxil ol</button></form></div></body></html>`;return sendHtml(res,200,html);}
-  if(req.method==='POST'){try{const body=await readBody(req);const c=parseCookies(req);if(!body.csrf||body.csrf!==c.admin_csrf)return sendHtml(res,419,'<h1>Etibarsız CSRF tokeni.</h1>');const id=String(body.identifier||'').trim().toLowerCase();const pw=String(body.password||'');const{rows}=await pool.query('SELECT id,username,email,password_hash FROM admins WHERE (LOWER(email)=LOWER($1) OR LOWER(username)=LOWER($1)) AND active=TRUE LIMIT 1',[id]);const a=rows[0];if(!a||!verifyPw(pw,a.password_hash)){const t=csrfToken();setCookie(res,'admin_csrf',t,3600);const html=`<!doctype html><html lang="az"><head><meta charset="utf-8"/><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0b12;color:#fff;font-family:Rajdhani,system-ui}.card{width:100%;max-width:420px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:24px}h1{font-size:22px;margin:0 0 16px}label{display:block;font-size:13px;color:#c9c9d1;margin:10px 0 6px}input{width:100%;background:#141427;border:1px solid rgba(255,255,255,.1);color:#fff;border-radius:10px;padding:10px 12px;outline:none;box-sizing:border-box}button{width:100%;margin-top:16px;background:#6c4df4;border:none;color:#fff;padding:12px 14px;border-radius:12px;font-weight:800;cursor:pointer}.error{margin-top:10px;background:rgba(255,99,71,.1);border:1px solid rgba(255,99,71,.3);padding:10px;border-radius:10px;color:#ffb3a7}</style></head><body><div class="card"><h1>Admin Giriş</h1><div class="error">Giriş məlumatları səhvdir</div><form method="post"><input type="hidden" name="csrf" value="${esc(t)}"/><label>Email və ya İstifadəçi Adı</label><input type="text" name="identifier" required value="${esc(id)}"/><label>Şifrə</label><input type="password" name="password" required/><button type="submit">Daxil ol</button></form></div></body></html>`;return sendHtml(res,200,html);}
-    const tok=crypto.randomBytes(32).toString('hex');adminSessions.set(tok,{adminId:a.id,username:a.username,createdAt:Date.now()});setCookie(res,'admin_token',tok,1800);await pool.query('UPDATE admins SET last_login_at=NOW() WHERE id=$1',[a.id]);res.writeHead(302,{Location:'/admin/'});res.end();}catch(e){console.error('[Admin Login Error]',e);return sendHtml(res,500,'<h1>Server xətası: '+esc(e.message)+'</h1>');}}
+  if(req.method==='POST'){try{const body=await readBody(req);const c=parseCookies(req);if(!body.csrf||body.csrf!==c.admin_csrf)return sendHtml(res,419,'<h1>Etibarsız CSRF tokeni.</h1>');const id=String(body.identifier||'').trim().toLowerCase();const pw=String(body.password||'');const a=findAdmin(id);if(!a||!verifyPw(pw,a.password_hash)){const t=csrfToken();setCookie(res,'admin_csrf',t,3600);const html=`<!doctype html><html lang="az"><head><meta charset="utf-8"/><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0b12;color:#fff;font-family:Rajdhani,system-ui}.card{width:100%;max-width:420px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:24px}h1{font-size:22px;margin:0 0 16px}label{display:block;font-size:13px;color:#c9c9d1;margin:10px 0 6px}input{width:100%;background:#141427;border:1px solid rgba(255,255,255,.1);color:#fff;border-radius:10px;padding:10px 12px;outline:none;box-sizing:border-box}button{width:100%;margin-top:16px;background:#6c4df4;border:none;color:#fff;padding:12px 14px;border-radius:12px;font-weight:800;cursor:pointer}.error{margin-top:10px;background:rgba(255,99,71,.1);border:1px solid rgba(255,99,71,.3);padding:10px;border-radius:10px;color:#ffb3a7}</style></head><body><div class="card"><h1>Admin Giriş</h1><div class="error">Giriş məlumatları səhvdir</div><form method="post"><input type="hidden" name="csrf" value="${esc(t)}"/><label>Email və ya İstifadəçi Adı</label><input type="text" name="identifier" required value="${esc(id)}"/><label>Şifrə</label><input type="password" name="password" required/><button type="submit">Daxil ol</button></form></div></body></html>`;return sendHtml(res,200,html);}
+    const tok=crypto.randomBytes(32).toString('hex');adminSessions.set(tok,{adminId:a.id,username:a.username,createdAt:Date.now()});setCookie(res,'admin_token',tok,1800);res.writeHead(302,{Location:'/admin/'});res.end();}catch(e){console.error('[Admin Login Error]',e);return sendHtml(res,500,'<h1>Server xətası: '+esc(e.message)+'</h1>');}}
 }
 
 async function rLogout(req,res){const c=parseCookies(req);if(c.admin_token)adminSessions.delete(c.admin_token);clearCookie(res,'admin_token');clearCookie(res,'admin_csrf');res.writeHead(302,{Location:'/admin/login'});res.end();}
