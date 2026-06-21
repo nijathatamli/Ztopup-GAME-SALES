@@ -1067,6 +1067,7 @@ const server = http.createServer(async (request, response) => {
     response.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8' });
     response.end(JSON.stringify({ message: 'Method not allowed' }));
   } catch (error) {
+    console.error('[Server Error]', request.method, request.url, error);
     sendJson(response, 500, { message: 'Server xətası baş verdi.' });
   }
 });
