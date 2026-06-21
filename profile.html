@@ -14,6 +14,7 @@
   window.addEventListener('load',function(){setTimeout(function(){var r=document.getElementById('root');if(r&&r.children.length===0){if(typeof React==='undefined'||typeof ReactDOM==='undefined'){window.__cdnError('React/ReactDOM');}else if(!(window.Babel)){window.__cdnError('Babel');}}},2500);});
 </script>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/header.js" defer></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" onerror="window.__cdnError('React')"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" onerror="window.__cdnError('ReactDOM')"></script>
 <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js" onerror="window.__cdnError('Babel')"></script>
@@ -102,15 +103,6 @@ function Avatar({size='h-24 w-24'}){
   </div>
 }
 
-function Topbar(){
-  return <header className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur-2xl">
-    <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-      <Logo/>
-      <a href="/login-v2.html" className="group inline-flex items-center gap-2 rounded-2xl border border-gold/45 bg-gold/10 px-4 py-3 font-rajdhani text-sm font-black tracking-[.12em] text-gold shadow-gold transition hover:-translate-y-0.5 hover:bg-gradient-to-r hover:from-amber-300 hover:to-orange-500 hover:text-black sm:px-6">👤 DAXİL OL</a>
-    </div>
-  </header>
-}
-
 function Sidebar({profile,onAction,onLogout,onShowProducts,onShowDeposit,showProducts,showDeposit,loggingOut}){
   return <aside className="glass flex h-fit flex-col rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] lg:sticky lg:top-24">
     <div className="flex flex-col items-center text-center">
@@ -191,20 +183,20 @@ function Tabs(){
   </div>
 }
 
-function ProductsPanel({games,selected,onToggle}){
+function ProductsPanel({categories,selected,onToggle}){
   return <section className="glass rounded-[2rem] p-6 shadow-[0_22px_70px_rgba(0,0,0,.42)]">
     <h2 className="font-orbitron text-2xl font-black text-gold">Məhsullar</h2>
     <p className="mt-2 text-sm text-white/55">Kateqoriyaları seçin.</p>
     <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      {games.map(game => (
-        <button key={game.name} onClick={()=>onToggle(game.name)} className={`relative overflow-hidden rounded-2xl border p-0 text-left transition ${selected.includes(game.name)?'border-gold/50 shadow-gold ring-1 ring-gold/25':'border-white/10 hover:border-gold/25 hover:shadow-gold'}`}>
+      {categories.map(cat => (
+        <button key={cat.id||cat.name} onClick={()=>onToggle(cat.name)} className={`relative overflow-hidden rounded-2xl border p-0 text-left transition ${selected.includes(cat.name)?'border-gold/50 shadow-gold ring-1 ring-gold/25':'border-white/10 hover:border-gold/25 hover:shadow-gold'}`}>
           <div className="absolute inset-0 opacity-80" style={{background:'radial-gradient(circle at 50% 32%, rgba(255,179,0,.18), transparent 48%)'}}></div>
           <div className="relative z-10 grid h-40 place-items-center bg-[#0e0e16]">
-            <img src={game.image} alt={game.name} className="max-h-24 w-auto object-contain" loading="lazy"/>
+            <img src={cat.image_url||'/assets/zelix-generated-logo.svg'} alt={cat.name} className="max-h-24 w-auto object-contain" loading="lazy" onError={e=>{e.target.src='/assets/zelix-generated-logo.svg';}}/>
           </div>
           <div className="relative z-10 flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
-            <div className="font-rajdhani text-sm font-black tracking-[.08em]">{game.name}</div>
-            <div className={`grid h-7 w-7 place-items-center rounded-full text-black ${selected.includes(game.name)?'bg-gradient-to-br from-amber-200 via-gold to-orange-500':'bg-white/10 text-white'}`}>{selected.includes(game.name)?'✓':'›'}</div>
+            <div className="font-rajdhani text-sm font-black tracking-[.08em]">{cat.name}</div>
+            <div className={`grid h-7 w-7 place-items-center rounded-full text-black ${selected.includes(cat.name)?'bg-gradient-to-br from-amber-200 via-gold to-orange-500':'bg-white/10 text-white'}`}>{selected.includes(cat.name)?'✓':'›'}</div>
           </div>
         </button>
       ))}
@@ -396,19 +388,18 @@ function App(){
   const [showProducts,setShowProducts]=React.useState(false);
   const [showDeposit,setShowDeposit]=React.useState(false);
   const [loggingOut,setLoggingOut]=React.useState(false);
-  const games=[
-    {name:'Free Fire',image:'https://dl.dir.freefiremobile.com/common/web_event/official2/dist/client/img/full_logo.969f536.png'},
-    {name:'PUBG Mobile',image:'https://cdn.cloudflare.steamstatic.com/steam/apps/578080/header.jpg'},
-    {name:'Brawl Stars',image:'https://1000logos.net/wp-content/uploads/2021/02/Brawl-Stars-logo.png'},
-    {name:'Clash of Clans',image:'https://1000logos.net/wp-content/uploads/2021/02/Clash-of-Clans-logo.png'},
-    {name:'Clash Royale',image:'https://1000logos.net/wp-content/uploads/2021/04/Clash-Royale-logo.png'},
-    {name:'Roblox',image:'https://1000logos.net/wp-content/uploads/2017/09/Roblox-Logo.png'},
-    {name:'eFootball',image:'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/EFootball_logo.svg/330px-EFootball_logo.svg.png'},
-    {name:'Call of Duty',image:'https://1000logos.net/wp-content/uploads/2020/09/Call-of-Duty-Logo.png'}
-  ];
+  const [categories,setCategories]=React.useState([]);
+  React.useEffect(()=>{
+    apiRequest('/api/categories').then(d=>setCategories(d.categories||[])).catch(()=>setCategories([]));
+  },[]);
   const [selected,setSelected]=React.useState([]);
   function toggle(name){ setSelected(prev=> prev.includes(name) ? prev.filter(n=>n!==name) : [...prev,name]); }
   React.useEffect(()=>{apiRequest('/api/profile').then(data=>setProfile(data.profile)).catch(()=>setMessage({type:'bad',text:'Profil məlumatları üçün daxil olmaq lazımdır.'}))},[]);
+  React.useEffect(()=>{
+    if(window.location.pathname==='/balance/topup'||window.location.pathname==='/balance/topup/'){
+      setShowProducts(false); setShowDeposit(true);
+    }
+  },[]);
   async function action(url,body){
     try{
       const data=await apiRequest(url,{method:'POST',body:JSON.stringify(body)});
@@ -450,12 +441,11 @@ function App(){
     <div className="fixed left-[-12rem] top-[-12rem] h-[34rem] w-[34rem] rounded-full bg-violet/25 blur-3xl"></div>
     <div className="fixed bottom-[-12rem] right-[-12rem] h-[36rem] w-[36rem] rounded-full bg-gold/15 blur-3xl"></div>
     {message && <div className={`fixed right-4 top-4 z-50 rounded-2xl border px-4 py-3 text-sm font-bold shadow-lg ${message.type==='bad'?'border-red-400/40 bg-red-500/15 text-red-200':'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'}`}>{message.text}</div>}
-    <Topbar/>
     <div className="relative z-10 mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[320px_1fr] lg:px-8">
       <Sidebar profile={profile} onAction={action} onLogout={logout} onShowProducts={(v)=>{setShowDeposit(false);setShowProducts(v);}} onShowDeposit={()=>{setShowProducts(false);setShowDeposit(true);}} showProducts={showProducts} showDeposit={showDeposit} loggingOut={loggingOut}/>
       <div className="space-y-6">
         {showProducts ? (
-          <ProductsPanel games={games} selected={selected} onToggle={toggle}/>
+          <ProductsPanel categories={categories} selected={selected} onToggle={toggle}/>
         ) : showDeposit ? (
           <>
             <Hero/>

@@ -283,6 +283,7 @@
   }
   .energy-ring::after{inset:58px;border-color:rgba(138,46,255,.4);animation:spin 10s linear infinite reverse}
   @keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+  @keyframes spin-simple{to{transform:rotate(360deg)}}
   .fighter{
     position:absolute;
     width:166px;height:248px;
@@ -653,6 +654,7 @@
     .navbtn{padding:10px 9px;font-size:11px;min-width:0;flex:1;justify-content:center}
   }
 </style>
+<script src="/header.js" defer></script>
 </head>
 <body>
   <div class="particles">
@@ -665,30 +667,6 @@
     <span class="particle"></span>
   </div>
   <div class="app">
-    <!-- HEADER -->
-    <header class="header">
-      <div class="logo">
-        <div class="logo-mark"><img src="assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"></div>
-        <div class="brand">ZELIX TOPUP</div>
-      </div>
-      <div class="header-actions">
-        <nav class="nav">
-          <button class="navbtn active"><span>⌂</span> Home</button>
-          <button class="navbtn" id="profileBtn"><span>👤</span> Profile</button>
-          <button class="navbtn"><span>▣</span> Products</button>
-          <button class="navbtn"><span>◈</span> Balance</button>
-        </nav>
-        <button class="login" id="openAuth">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>
-          Login
-        </button>
-        <div class="user-chip" id="userChip">
-          <span class="user-avatar" id="userAvatar">Z</span>
-          <span id="userName">User</span>
-          <button class="logout" id="logoutBtn">Çıxış</button>
-        </div>
-      </div>
-    </header>
     <main class="main">
       <!-- HERO -->
       <section class="hero">
@@ -835,109 +813,38 @@
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   }
 
-  const games = [
-    {
-      name: 'Free Fire',
-      className: 'freefire',
-      image: 'https://dl.dir.freefiremobile.com/common/web_event/official2/dist/client/img/full_logo.969f536.png'
-    },
-    {
-      name: 'PUBG Mobile',
-      className: 'pubg',
-      image: 'https://cdn.cloudflare.steamstatic.com/steam/apps/578080/header.jpg'
-    },
-    {
-      name: 'Brawl Stars',
-      className: 'brawl',
-      image: 'https://1000logos.net/wp-content/uploads/2021/02/Brawl-Stars-logo.png'
-    },
-    {
-      name: 'Clash of Clans',
-      className: 'coc',
-      image: 'https://1000logos.net/wp-content/uploads/2021/02/Clash-of-Clans-logo.png'
-    },
-    {
-      name: 'Clash Royale',
-      className: 'royale',
-      image: 'https://1000logos.net/wp-content/uploads/2021/04/Clash-Royale-logo.png'
-    },
-    {
-      name: 'Roblox',
-      className: 'roblox',
-      image: 'https://1000logos.net/wp-content/uploads/2017/09/Roblox-Logo.png'
-    },
-    {
-      name: 'eFootball',
-      className: 'football',
-      image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/EFootball_logo.svg/330px-EFootball_logo.svg.png'
-    },
-    {
-      name: 'Call of Duty',
-      className: 'cod',
-      image: 'https://1000logos.net/wp-content/uploads/2020/09/Call-of-Duty-Logo.png'
-    }
-  ];
-
   const categoryGrid = document.querySelector('#categoryGrid');
-  categoryGrid.innerHTML = games.map(game => `
-    <div class="category-card ${game.className}" data-game="${game.name}">
-      <div class="game-art">
-        <img src="${game.image}" alt="${game.name} artwork" loading="lazy">
-      </div>
-      <div class="game-name">${game.name}</div>
-      <div class="arrow">›</div>
-    </div>
-  `).join('');
 
-  // Navigate to dedicated pages
-  document.querySelectorAll('.category-card').forEach(card => {
-    const g = (card.getAttribute('data-game') || '').toLowerCase();
-    card.addEventListener('click', () => {
-      if (g.includes('pubg')) {
-        window.location.assign('pubg.html');
+  async function loadCategories(){
+    categoryGrid.innerHTML = `<div class="category-card" style="display:grid;place-items:center"><div style="width:40px;height:40px;border:3px solid rgba(255,179,0,.3);border-top-color:var(--gold);border-radius:50%;animation:spin-simple 1s linear infinite"></div></div>`.repeat(4);
+    try {
+      const res = await fetch('/api/categories');
+      const data = await res.json();
+      const cats = data.categories || [];
+      if (!cats.length) {
+        categoryGrid.innerHTML = '<div class="category-card" style="display:grid;place-items:center;color:var(--muted)">Kateqoriya yoxdur</div>';
+        return;
       }
-    });
-  });
-
-  const pubgCard = document.querySelector('.category-card.pubg');
-  if (pubgCard) {
-    pubgCard.style.position = 'relative';
-    pubgCard.style.cursor = 'pointer';
-    pubgCard.style.zIndex = '0';
-    const link = document.createElement('a');
-    link.href = 'pubg.html';
-    link.style.position = 'absolute';
-    link.style.top = '0';
-    link.style.right = '0';
-    link.style.bottom = '0';
-    link.style.left = '0';
-    link.style.display = 'block';
-    link.style.zIndex = '999';
-    link.setAttribute('aria-label', 'PUBG Mobile UC');
-    pubgCard.appendChild(link);
-
-    // iOS/Safari touch fallback
-    pubgCard.addEventListener('touchend', (e) => {
-      try { e.preventDefault(); } catch {}
-      window.location.assign('pubg.html');
-    }, { passive: false });
-
-    pubgCard.addEventListener('mousedown', () => {
-      window.location.assign('pubg.html');
-    });
+      categoryGrid.innerHTML = cats.map(cat => {
+        const slug = cat.slug || cat.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const img = cat.image_url || 'assets/zelix-generated-logo.svg';
+        return `
+          <a href="/category/${slug}" class="category-card" data-game="${cat.name}">
+            <div class="game-art"><img src="${img}" alt="${cat.name}" loading="lazy" onerror="this.src='assets/zelix-generated-logo.svg'"></div>
+            <div class="game-name">${cat.name}</div>
+            <div class="arrow">›</div>
+          </a>
+        `;
+      }).join('');
+    } catch (err) {
+      categoryGrid.innerHTML = '<div class="category-card" style="display:grid;place-items:center;color:var(--muted)">Kateqoriyalar yüklənə bilmədi</div>';
+      console.error('Categories load error:', err);
+    }
   }
+  loadCategories();
 
   document.querySelector('#topupCta').addEventListener('click', () => {
     document.querySelector('#categories').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
-
-  document.querySelector('#profileBtn').addEventListener('click', () => {
-    const token = localStorage.getItem('zelixToken');
-    if (token) {
-      window.location.href = '/profile.html';
-    } else {
-      window.location.href = '/login-v2.html';
-    }
   });
 
   const dots = document.querySelectorAll('#dots .dot');
@@ -949,47 +856,20 @@
   }
   dots.forEach(d=>d.addEventListener('click',()=>setDot(Number(d.dataset.i))));
   setInterval(()=>setDot((active+1)%dots.length),4200);
-  document.querySelectorAll('.navbtn').forEach(button=>{
-    button.addEventListener('click',()=>{
-      document.querySelectorAll('.navbtn').forEach(item=>item.classList.remove('active'));
-      button.classList.add('active');
-    });
-  });
 
   const authOverlay = document.querySelector('#authOverlay');
-  const openAuth = document.querySelector('#openAuth');
   const authClose = document.querySelector('#authClose');
   const loginForm = document.querySelector('#loginForm');
   const registerForm = document.querySelector('#registerForm');
   const authMessage = document.querySelector('#authMessage');
-  const userChip = document.querySelector('#userChip');
-  const userName = document.querySelector('#userName');
-  const userAvatar = document.querySelector('#userAvatar');
-  const logoutBtn = document.querySelector('#logoutBtn');
 
   function showAuthMessage(message, isError = false){
     authMessage.textContent = message;
     authMessage.classList.toggle('error', isError);
   }
 
-  function openAuthModal(){
-    window.location.href = '/login-v2.html';
-  }
-
   function closeAuthModal(){
     authOverlay.classList.remove('active');
-  }
-
-  function setAuthUser(user){
-    if (!user) {
-      openAuth.style.display = 'flex';
-      userChip.style.display = 'none';
-      return;
-    }
-    openAuth.style.display = 'none';
-    userChip.style.display = 'flex';
-    userName.textContent = user.name;
-    userAvatar.textContent = user.name.slice(0, 1).toUpperCase();
   }
 
   async function authRequest(url, data){
@@ -1015,7 +895,6 @@
     });
   });
 
-  openAuth.addEventListener('click', openAuthModal);
   authClose.addEventListener('click', closeAuthModal);
   authOverlay.addEventListener('click', event=>{
     if (event.target === authOverlay) closeAuthModal();
@@ -1028,7 +907,7 @@
       showAuthMessage('Giriş yoxlanılır...');
       const result = await authRequest('/api/login', data);
       localStorage.setItem('zelixToken', result.token);
-      setAuthUser(result.user);
+      window.dispatchEvent(new CustomEvent('ztopup:login'));
       showAuthMessage(result.message);
       setTimeout(closeAuthModal, 650);
     } catch (error) {
@@ -1043,64 +922,13 @@
       showAuthMessage('Hesab yaradılır...');
       const result = await authRequest('/api/register', data);
       localStorage.setItem('zelixToken', result.token);
-      setAuthUser(result.user);
+      window.dispatchEvent(new CustomEvent('ztopup:login'));
       showAuthMessage(result.message);
       setTimeout(closeAuthModal, 650);
     } catch (error) {
       showAuthMessage(error.message, true);
     }
   });
-
-  let loggingOut = false;
-  logoutBtn.addEventListener('click', async ()=>{
-    if (loggingOut) return; // prevent multiple clicks while in progress
-    loggingOut = true;
-    const originalText = logoutBtn.textContent;
-    logoutBtn.disabled = true;
-    logoutBtn.style.opacity = '0.7';
-    logoutBtn.style.cursor = 'wait';
-    logoutBtn.textContent = 'Çıxılır...';
-    try {
-      const token = localStorage.getItem('zelixToken');
-      const res = await fetch('/api/logout', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: '{}'
-      });
-      const data = await res.json().catch(()=>({}));
-      if (!res.ok || data.success === false) {
-        throw new Error(data.message || 'Çıxış uğursuz oldu.');
-      }
-      // Success: clear client state and update UI.
-      localStorage.removeItem('zelixToken');
-      setAuthUser(null);
-    } catch (error) {
-      // Failure: restore button and inform the user.
-      alert(error.message || 'Çıxış zamanı xəta baş verdi. Yenidən cəhd edin.');
-    } finally {
-      loggingOut = false;
-      logoutBtn.disabled = false;
-      logoutBtn.style.opacity = '';
-      logoutBtn.style.cursor = '';
-      logoutBtn.textContent = originalText;
-    }
-  });
-
-  async function restoreSession(){
-    const token = localStorage.getItem('zelixToken');
-    try {
-      const response = await fetch('/api/me', { credentials: 'same-origin', ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) });
-      if (!response.ok) throw new Error('Session expired');
-      const result = await response.json();
-      setAuthUser(result.user);
-    } catch {
-      localStorage.removeItem('zelixToken');
-      setAuthUser(null);
-    }
-  }
-
-  restoreSession();
 </script>
 <script src="/footer.js" defer></script>
 </body>

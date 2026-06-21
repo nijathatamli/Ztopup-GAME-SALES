@@ -14,11 +14,22 @@ if (process.env.__INJECT_DATABASE_URL && !process.env.DATABASE_URL) {
 // TRANSACTIONS AND AVATAR REQUESTS (NEW)
 // ==========================================
 
-async function dbCreateTransaction(userId, amount, type, status = 'approved', ref = null) {
+async function dbCreateTransaction(userId, amount, type, status = 'approved', ref = null, category = null, description = null) {
+  const id = crypto.randomUUID();
+  // Derive a sensible category if not provided (deposit/purchase/refund/admin_adjustment)
+  const cat = category || (type === 'credit' ? 'deposit' : type === 'debit' ? 'purchase' : 'admin_adjustment');
+  await pool.query(
+    'INSERT INTO transactions (id, user_id, amount, type, status, ref, category, description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+    [id, userId, Number(amount), String(type), String(status), ref ? String(ref) : null, String(cat), description ? String(description) : (ref ? String(ref) : null)]
+  );
+  return id;
+}
+
+async function dbCreateNotification(userId, title, message, type = 'system') {
   const id = crypto.randomUUID();
   await pool.query(
-    'INSERT INTO transactions (id, user_id, amount, type, status, ref) VALUES ($1,$2,$3,$4,$5,$6)',
-    [id, userId, Number(amount), String(type), String(status), ref ? String(ref) : null]
+    'INSERT INTO notifications (id, user_id, title, message, type) VALUES ($1,$2,$3,$4,$5)',
+    [id, userId, String(title), String(message), String(type)]
   );
   return id;
 }
@@ -214,17 +225,72 @@ async function dbEnsureSchema() {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_user_id ON deposit_requests(user_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_status ON deposit_requests(status)');
 
+  // Extend transactions to support richer categories/descriptions (backward compatible)
+  await pool.query("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS category VARCHAR(30) NOT NULL DEFAULT 'admin_adjustment'");
+  await pool.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS description TEXT');
+
+  // Shopping cart items (one active cart per user, keyed by product)
+  await pool.query(`CREATE TABLE IF NOT EXISTS cart_items (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    product_id VARCHAR(36) NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_cart_item UNIQUE (user_id, product_id)
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_cart_user_id ON cart_items(user_id)');
+
+  // User notifications / message center
+  await pool.query(`CREATE TABLE IF NOT EXISTS notifications (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    title VARCHAR(160) NOT NULL,
+    message TEXT NOT NULL,
+    type VARCHAR(20) NOT NULL DEFAULT 'system', -- system | purchase | balance | promotion | support
+    is_read BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(user_id, is_read)');
+
   // Additional tables and columns for new features
+  await pool.query(`CREATE TABLE IF NOT EXISTS categories (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    slug VARCHAR(120) NOT NULL UNIQUE,
+    image_url TEXT,
+    description TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_categories_active ON categories(is_active)');
+
   await pool.query(`CREATE TABLE IF NOT EXISTS products (
     id VARCHAR(36) PRIMARY KEY,
+    category_id VARCHAR(36),
     game VARCHAR(120) NOT NULL,
     title VARCHAR(160) NOT NULL,
     price DECIMAL(10,2) NOT NULL,
     image_url TEXT,
+    description TEXT,
     available BOOLEAN NOT NULL DEFAULT true,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     delivery_minutes INTEGER NOT NULL DEFAULT 5,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
+  await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS category_id VARCHAR(36)');
+  await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT');
+  await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true');
+  await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active, available)');
+
   await pool.query(`CREATE TABLE IF NOT EXISTS order_status (
     id SERIAL PRIMARY KEY,
     code VARCHAR(40) UNIQUE NOT NULL,
@@ -233,29 +299,92 @@ async function dbEnsureSchema() {
   await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_id VARCHAR(36)');
   await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS quantity INTEGER DEFAULT 1');
   await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS status_id INTEGER');
+  await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS status_code VARCHAR(40)');
+  await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10,2)');
+  await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_orders_status_code ON orders(status_code)');
 
-  // Seed order statuses
+  await pool.query(`CREATE TABLE IF NOT EXISTS order_items (
+    id VARCHAR(36) PRIMARY KEY,
+    order_id VARCHAR(36) NOT NULL,
+    product_id VARCHAR(36) NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_price DECIMAL(10,2) NOT NULL,
+    total_price DECIMAL(10,2) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items(product_id)');
+
+  // Seed order statuses (pending, processing, completed, rejected)
   const { rows: st } = await pool.query('SELECT COUNT(*)::int AS c FROM order_status');
   if (!st[0] || st[0].c === 0) {
     await pool.query(`INSERT INTO order_status (code, label) VALUES
       ('pending','Gözləmədə'),
       ('processing','Emal edilir'),
       ('completed','Tamamlandı'),
-      ('failed','Uğursuz')`);
+      ('rejected','Rədd edildi')`);
+  } else {
+    await pool.query(`INSERT INTO order_status (code, label) VALUES ('rejected','Rədd edildi')
+      ON CONFLICT (code) DO UPDATE SET label = EXCLUDED.label`);
+  }
+
+  // Migrate legacy orders to order_items (one item per legacy order)
+  const { rows: unmigrated } = await pool.query(`
+    SELECT o.id, o.product_id, o.quantity, o.price, o.status
+    FROM orders o
+    LEFT JOIN order_items oi ON oi.order_id = o.id
+    WHERE o.product_id IS NOT NULL AND oi.id IS NULL
+    LIMIT 500
+  `);
+  for (const o of unmigrated) {
+    const itemId = crypto.randomUUID();
+    const qty = Number(o.quantity || 1);
+    const unit = Number(o.price || 0) / (qty || 1);
+    await pool.query(
+      'INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, total_price) VALUES ($1,$2,$3,$4,$5,$6)',
+      [itemId, o.id, o.product_id, qty, unit, o.price]
+    );
+    const code = (o.status || '').toLowerCase() === 'tamamlandı' ? 'completed' : 'pending';
+    await pool.query('UPDATE orders SET status_code = $1 WHERE id = $2', [code, o.id]);
+  }
+
+  // Migrate categories from product games and link products
+  const { rows: uncategorized } = await pool.query('SELECT DISTINCT game FROM products WHERE category_id IS NULL AND game IS NOT NULL');
+  for (const g of uncategorized) {
+    const name = g.game;
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game-' + crypto.randomUUID().slice(0,8);
+    const cid = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO categories (id, name, slug, image_url, description, is_active)
+       VALUES ($1, $2, $3, $4, $5, true)
+       ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [cid, name, slug, '/assets/' + slug + '-banner.jpg', name + ' Top-Up']
+    );
+    await pool.query('UPDATE products SET category_id = c.id FROM categories c WHERE products.category_id IS NULL AND LOWER(products.game) = LOWER(c.name) AND c.name = $1', [name]);
   }
 
   // Seed PUBG products if empty
   const { rows: pc } = await pool.query("SELECT COUNT(*)::int AS c FROM products WHERE LOWER(game)='pubg mobile' OR LOWER(game)='pubg'");
   if (!pc[0] || pc[0].c === 0) {
+    let pubgCat = await pool.query("SELECT id FROM categories WHERE slug = 'pubg-mobile' LIMIT 1");
+    let cid = pubgCat.rows[0]?.id;
+    if (!cid) {
+      cid = crypto.randomUUID();
+      await pool.query('INSERT INTO categories (id, name, slug, image_url, description, is_active) VALUES ($1,$2,$3,$4,$5,true)', [cid, 'PUBG Mobile', 'pubg-mobile', '/assets/pubg-banner.jpg', 'PUBG Mobile UC Top-Up']);
+    }
     const pid1 = crypto.randomUUID();
     const pid2 = crypto.randomUUID();
     const pid3 = crypto.randomUUID();
+    const pid4 = crypto.randomUUID();
     await pool.query(
-      'INSERT INTO products (id, game, title, price, image_url, available, delivery_minutes) VALUES ($1,$2,$3,$4,$5,$6,$7),($8,$9,$10,$11,$12,$13,$14),($15,$16,$17,$18,$19,$20,$21)',
+      'INSERT INTO products (id, category_id, game, title, price, image_url, available, delivery_minutes, is_active, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10),($11,$12,$13,$14,$15,$16,$17,$18,$19,$20),($21,$22,$23,$24,$25,$26,$27,$28,$29,$30),($31,$32,$33,$34,$35,$36,$37,$38,$39,$40)',
       [
-        pid1,'PUBG Mobile','60 UC',2.99,'/assets/pubg-uc.png',true,5,
-        pid2,'PUBG Mobile','325 UC',14.49,'/assets/pubg-uc.png',true,5,
-        pid3,'PUBG Mobile','660 UC',27.99,'/assets/pubg-uc.png',true,5
+        pid1, cid, 'PUBG Mobile', '60 UC', 2.99, '/assets/pubg-uc.png', true, 5, true, 1,
+        pid2, cid, 'PUBG Mobile', '325 UC', 14.49, '/assets/pubg-uc.png', true, 5, true, 2,
+        pid3, cid, 'PUBG Mobile', '660 UC', 27.99, '/assets/pubg-uc.png', true, 5, true, 3,
+        pid4, cid, 'PUBG Mobile', '1800 UC', 69.99, '/assets/pubg-uc.png', true, 5, true, 4
       ]
     );
   }
@@ -264,19 +393,81 @@ async function dbEnsureSchema() {
 async function products(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const game = (url.searchParams.get('game') || '').trim().toLowerCase();
-  let sql = 'SELECT * FROM products';
+  const categoryId = (url.searchParams.get('categoryId') || '').trim();
+  const categorySlug = (url.searchParams.get('categorySlug') || '').trim().toLowerCase();
+  const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+  let sql = `SELECT p.*, c.name AS category_name, c.slug AS category_slug
+             FROM products p
+             LEFT JOIN categories c ON c.id = p.category_id`;
   const params = [];
-  if (game) { sql += ' WHERE LOWER(game) = $1 OR LOWER(game) = $2'; params.push(game, game + ' mobile'); }
+  const conds = [];
+  if (game) { conds.push('(LOWER(p.game) = $' + (params.length + 1) + ' OR LOWER(p.game) = $' + (params.length + 2) + ')'); params.push(game, game + ' mobile'); }
+  if (categoryId) { conds.push('p.category_id = $' + (params.length + 1)); params.push(categoryId); }
+  if (categorySlug) { conds.push('c.slug = $' + (params.length + 1)); params.push(categorySlug); }
+  if (q) { conds.push('(LOWER(p.title) LIKE $' + (params.length + 1) + ' OR LOWER(p.game) LIKE $' + (params.length + 1) + ')'); params.push('%' + q + '%'); }
+  // Public APIs only show active/available products
+  conds.push('p.is_active = true');
+  conds.push('p.available = true');
+  if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
+  sql += ' ORDER BY p.sort_order ASC, p.created_at DESC';
   const { rows } = await pool.query(sql, params);
   sendJson(response, 200, { products: rows });
+}
+
+async function productGet(request, response, productId) {
+  const { rows } = await pool.query(`SELECT p.*, c.name AS category_name, c.slug AS category_slug
+    FROM products p LEFT JOIN categories c ON c.id = p.category_id
+    WHERE p.id = $1 AND p.is_active = true LIMIT 1`, [productId]);
+  if (!rows.length) return sendJson(response, 404, { message: 'Məhsul tapılmadı.' });
+  sendJson(response, 200, { product: rows[0] });
+}
+
+async function categoriesList(request, response) {
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const slug = (url.searchParams.get('slug') || '').trim().toLowerCase();
+  let sql = 'SELECT * FROM categories';
+  const params = [];
+  if (slug) { sql += ' WHERE slug = $1'; params.push(slug); }
+  else { sql += ' WHERE is_active = true'; }
+  sql += ' ORDER BY name ASC';
+  const { rows } = await pool.query(sql, params);
+  sendJson(response, 200, { categories: rows });
+}
+
+async function categoryGet(request, response, slug) {
+  const { rows } = await pool.query('SELECT * FROM categories WHERE slug = $1 AND is_active = true LIMIT 1', [slug]);
+  if (!rows.length) return sendJson(response, 404, { message: 'Kateqoriya tapılmadı.' });
+  sendJson(response, 200, { category: rows[0] });
+}
+
+async function categoryProducts(request, response, slug) {
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+  const { rows: catRows } = await pool.query('SELECT * FROM categories WHERE slug = $1 AND is_active = true LIMIT 1', [slug]);
+  if (!catRows.length) return sendJson(response, 404, { message: 'Kateqoriya tapılmadı.' });
+  const category = catRows[0];
+  let sql = `SELECT p.* FROM products p WHERE p.category_id = $1 AND p.is_active = true AND p.available = true`;
+  const params = [category.id];
+  if (q) { sql += ' AND (LOWER(p.title) LIKE $' + (params.length + 1) + ' OR LOWER(p.game) LIKE $' + (params.length + 1) + ')'; params.push('%' + q + '%'); }
+  sql += ' ORDER BY p.sort_order ASC, p.created_at DESC';
+  const { rows } = await pool.query(sql, params);
+  sendJson(response, 200, { category, products: rows });
 }
 
 async function adminCreateProduct(request, response) {
   const admin = await requireAdmin(request, response); if (!admin) return;
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const id = crypto.randomUUID();
-  const { game = 'PUBG Mobile', title = 'Package', price = 1.0, imageUrl = '', available = true, deliveryMinutes = 5 } = body;
-  await pool.query('INSERT INTO products (id, game, title, price, image_url, available, delivery_minutes) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, String(game), String(title), Number(price), String(imageUrl), Boolean(available), Number(deliveryMinutes)]);
+  const {
+    categoryId = null, game = 'PUBG Mobile', title = 'Package', price = 1.0,
+    imageUrl = '', description = '', available = true, isActive = true,
+    deliveryMinutes = 5, sortOrder = 0
+  } = body;
+  await pool.query(
+    `INSERT INTO products (id, category_id, game, title, price, image_url, description, available, is_active, delivery_minutes, sort_order, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())`,
+    [id, categoryId || null, String(game), String(title), Number(price), String(imageUrl), String(description), Boolean(available), Boolean(isActive), Number(deliveryMinutes), Number(sortOrder)]
+  );
   const { rows } = await pool.query('SELECT * FROM products WHERE id=$1', [id]);
   sendJson(response, 201, { product: rows[0] });
 }
@@ -287,18 +478,25 @@ async function adminUpdateProduct(request, response) {
   const id = url.searchParams.get('id') || '';
   if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
-  const map = { game: 'game', title: 'title', price: 'price', imageUrl: 'image_url', available: 'available', deliveryMinutes: 'delivery_minutes' };
-  const sets = [];
+  const map = {
+    categoryId: 'category_id', game: 'game', title: 'title', price: 'price',
+    imageUrl: 'image_url', description: 'description', available: 'available',
+    isActive: 'is_active', deliveryMinutes: 'delivery_minutes', sortOrder: 'sort_order'
+  };
+  const sets = ['updated_at = NOW()'];
   const values = [];
   for (const key in map) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       const col = map[key];
-      const val = key === 'price' ? Number(body[key]) : key === 'available' ? Boolean(body[key]) : key === 'deliveryMinutes' ? Number(body[key]) : String(body[key]);
-      sets.push(`${col} = $${sets.length + 1}`);
+      const val = key === 'price' ? Number(body[key])
+        : key === 'available' || key === 'isActive' ? Boolean(body[key])
+        : key === 'deliveryMinutes' || key === 'sortOrder' ? Number(body[key])
+        : String(body[key] || '');
       values.push(val);
+      sets.push(`${col} = $${values.length}`);
     }
   }
-  if (sets.length === 0) return sendJson(response, 400, { message: 'Heç bir dəyişiklik yoxdur' });
+  if (sets.length === 1) return sendJson(response, 400, { message: 'Heç bir dəyişiklik yoxdur' });
   values.push(id);
   await pool.query(`UPDATE products SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
   const { rows } = await pool.query('SELECT * FROM products WHERE id=$1', [id]);
@@ -314,7 +512,98 @@ async function adminDeleteProduct(request, response) {
   sendJson(response, 200, { message: 'Silindi' });
 }
 
+async function adminProductsList(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+  const cat = (url.searchParams.get('category') || '').trim();
+  let sql = `SELECT p.*, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id`;
+  const params = [];
+  const conds = [];
+  if (q) { conds.push('(LOWER(p.title) LIKE $' + (params.length + 1) + ' OR LOWER(p.game) LIKE $' + (params.length + 1) + ')'); params.push('%' + q + '%'); }
+  if (cat) { conds.push('p.category_id = $' + (params.length + 1)); params.push(cat); }
+  if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
+  sql += ' ORDER BY p.sort_order ASC, p.created_at DESC';
+  const { rows } = await pool.query(sql, params);
+  sendJson(response, 200, { products: rows });
+}
+
+async function adminCategoriesList(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+  let sql = 'SELECT * FROM categories';
+  const params = [];
+  if (q) { sql += ' WHERE LOWER(name) LIKE $1 OR LOWER(slug) LIKE $1'; params.push('%' + q + '%'); }
+  sql += ' ORDER BY created_at DESC';
+  const { rows } = await pool.query(sql, params);
+  sendJson(response, 200, { categories: rows });
+}
+
+async function adminCreateCategory(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const name = String(body.name || '').trim();
+  if (!name) return sendJson(response, 400, { message: 'Ad tələb olunur.' });
+  const slug = String(body.slug || name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const id = crypto.randomUUID();
+  try {
+    await pool.query(
+      'INSERT INTO categories (id, name, slug, image_url, description, is_active, updated_at) VALUES ($1,$2,$3,$4,$5,$6,NOW())',
+      [id, name, slug, String(body.imageUrl || ''), String(body.description || ''), Boolean(body.isActive !== false)]
+    );
+  } catch (e) {
+    if (e.code === '23505') return sendJson(response, 409, { message: 'Bu slug artıq istifadə edilir.' });
+    throw e;
+  }
+  const { rows } = await pool.query('SELECT * FROM categories WHERE id=$1', [id]);
+  sendJson(response, 201, { category: rows[0] });
+}
+
+async function adminUpdateCategory(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const id = url.searchParams.get('id') || '';
+  if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const map = { name: 'name', slug: 'slug', imageUrl: 'image_url', description: 'description', isActive: 'is_active' };
+  const sets = ['updated_at = NOW()'];
+  const values = [];
+  for (const key in map) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      const col = map[key];
+      const val = key === 'isActive' ? Boolean(body[key])
+        : key === 'slug' ? String(body[key] || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+        : String(body[key] || '');
+      values.push(val);
+      sets.push(`${col} = $${values.length}`);
+    }
+  }
+  if (sets.length === 1) return sendJson(response, 400, { message: 'Heç bir dəyişiklik yoxdur' });
+  values.push(id);
+  try {
+    await pool.query(`UPDATE categories SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
+  } catch (e) {
+    if (e.code === '23505') return sendJson(response, 409, { message: 'Bu slug artıq istifadə edilir.' });
+    throw e;
+  }
+  const { rows } = await pool.query('SELECT * FROM categories WHERE id=$1', [id]);
+  sendJson(response, 200, { category: rows[0] });
+}
+
+async function adminDeleteCategory(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const id = url.searchParams.get('id') || '';
+  if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
+  // Clear category_id on products first (or reassign to a default? safer to clear)
+  await pool.query('UPDATE products SET category_id = NULL WHERE category_id = $1', [id]);
+  await pool.query('DELETE FROM categories WHERE id = $1', [id]);
+  sendJson(response, 200, { message: 'Silindi' });
+}
+
 async function createOrder(request, response) {
+  // Reuse checkout logic for single-product buy
   const user = await requireUser(request, response); if (!user) return;
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const productId = String(body.productId || '').trim();
@@ -322,31 +611,177 @@ async function createOrder(request, response) {
   const playerId = String(body.playerId || '').trim();
   const contactEmail = String(body.email || user.email).trim().toLowerCase();
   if (!productId || quantity <= 0 || !playerId) return sendJson(response, 400, { message: 'Məlumatlar tam deyil.' });
-  const { rows: pr } = await pool.query('SELECT * FROM products WHERE id = $1 LIMIT 1', [productId]);
-  if (pr.length === 0) return sendJson(response, 404, { message: 'Məhsul tapılmadı.' });
-  const prod = pr[0];
-  if (!prod.available) return sendJson(response, 400, { message: 'Məhsul hazırda mövcud deyil.' });
-  const priceTotal = Number(prod.price) * quantity;
-  const { rows: st } = await pool.query("SELECT id FROM order_status WHERE code='pending' LIMIT 1");
-  const statusId = st[0]?.id || null;
+  const result = await createOrderInternal({ user, items: [{ productId, quantity }], playerId, contactEmail });
+  if (!result.ok) return sendJson(response, result.status || 400, { message: result.message });
+  sendJson(response, 201, { message: 'Sifariş yaradıldı.', order: result.order });
+}
+
+async function createOrderInternal({ user, items, playerId, contactEmail }) {
+  // items: [{ productId, quantity }]
+  if (!Array.isArray(items) || items.length === 0) return { ok: false, message: 'Səbət boşdur.' };
   const orderId = crypto.randomUUID();
-  await pool.query(
-    'INSERT INTO orders (id, user_id, user_email, game, package, price, player_id, status, product_id, quantity, status_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
-    [orderId, user.id, contactEmail, prod.game, prod.title, priceTotal, playerId, 'Gözləmədə', productId, quantity, statusId]
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Fetch products with lock
+    const productIds = items.map(it => it.productId);
+    const { rows: products } = await client.query(
+      'SELECT id, game, title, price, image_url, available, is_active FROM products WHERE id = ANY($1) FOR UPDATE',
+      [productIds]
+    );
+    const productMap = new Map(products.map(p => [p.id, p]));
+    let subtotal = 0;
+    const orderItems = [];
+    for (const it of items) {
+      const prod = productMap.get(it.productId);
+      if (!prod) { await client.query('ROLLBACK'); return { ok: false, message: 'Məhsul tapılmadı.' }; }
+      if (!prod.available || !prod.is_active) { await client.query('ROLLBACK'); return { ok: false, message: `${prod.title} hazırda mövcud deyil.` }; }
+      const qty = Math.max(1, Math.min(99, Number(it.quantity || 1)));
+      const lineTotal = Math.round(Number(prod.price) * qty * 100) / 100;
+      subtotal += lineTotal;
+      orderItems.push({ productId: prod.id, game: prod.game, title: prod.title, quantity: qty, unitPrice: Number(prod.price), totalPrice: lineTotal, imageUrl: prod.image_url });
+    }
+    const { rows: st } = await client.query("SELECT id FROM order_status WHERE code='pending' LIMIT 1");
+    const statusId = st[0]?.id || null;
+
+    // Check user balance
+    const { rows: uRows } = await client.query('SELECT balance FROM users WHERE id = $1 FOR UPDATE', [user.id]);
+    const currentBalance = Number(uRows[0].balance || 0);
+    if (currentBalance < subtotal) { await client.query('ROLLBACK'); return { ok: false, status: 400, message: 'Balansınız kifayət etmir. Balansınızı artırın.' }; }
+
+    // Deduct balance
+    await client.query('UPDATE users SET balance = balance - $1 WHERE id = $2', [subtotal, user.id]);
+    // Create order
+    await client.query(
+      'INSERT INTO orders (id, user_id, user_email, game, package, price, player_id, status, status_id, status_code, total_amount, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())',
+      [orderId, user.id, contactEmail, orderItems[0].game, orderItems[0].title, subtotal, playerId, 'Gözləmədə', statusId, 'pending', subtotal]
+    );
+    // Create order items
+    for (const it of orderItems) {
+      await client.query(
+        'INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, total_price) VALUES ($1,$2,$3,$4,$5,$6)',
+        [crypto.randomUUID(), orderId, it.productId, it.quantity, it.unitPrice, it.totalPrice]
+      );
+    }
+    // Transaction record
+    await client.query(
+      'INSERT INTO transactions (id, user_id, amount, type, status, ref, category, description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [crypto.randomUUID(), user.id, subtotal, 'debit', 'approved', orderId, 'purchase', `Sifariş: ${orderItems.map(i => i.title + ' x' + i.quantity).join(', ')}`]
+    );
+    // Clear cart
+    await client.query('DELETE FROM cart_items WHERE user_id = $1', [user.id]);
+    // Notification
+    await client.query(
+      'INSERT INTO notifications (id, user_id, title, message, type) VALUES ($1,$2,$3,$4,$5)',
+      [crypto.randomUUID(), user.id, 'Sifariş yaradıldı', `${orderItems[0].title} (${subtotal.toFixed(2)} AZN) sifarişiniz qəbul edildi.`, 'purchase']
+    );
+    await client.query('COMMIT');
+    ssePushState(user.id);
+    return { ok: true, order: { id: orderId, status: 'pending', statusCode: 'pending', totalAmount: subtotal, items: orderItems } };
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('createOrderInternal error:', e);
+    return { ok: false, status: 500, message: 'Sifariş yaradılarkən xəta baş verdi.' };
+  } finally {
+    client.release();
+  }
+}
+
+async function cartCheckout(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const playerId = String(body.playerId || '').trim();
+  const contactEmail = String(body.email || user.email).trim().toLowerCase();
+  if (!playerId) return sendJson(response, 400, { message: 'Oyunçu ID tələb olunur.' });
+  // Load cart
+  const cart = await dbCartSummary(user.id);
+  if (!cart.items.length) return sendJson(response, 400, { message: 'Səbət boşdur.' });
+  const items = cart.items.map(it => ({ productId: it.productId, quantity: it.quantity }));
+  const result = await createOrderInternal({ user, items, playerId, contactEmail });
+  if (!result.ok) return sendJson(response, result.status || 400, { message: result.message });
+  sendJson(response, 200, { message: 'Sifariş uğurla tamamlandı.', order: result.order });
+}
+
+async function orderWithItems(orderId) {
+  const { rows: orders } = await pool.query('SELECT o.*, os.label AS status_label FROM orders o LEFT JOIN order_status os ON os.code = o.status_code WHERE o.id = $1 LIMIT 1', [orderId]);
+  if (!orders.length) return null;
+  const order = orders[0];
+  const { rows: items } = await pool.query(
+    `SELECT oi.*, p.title, p.game, p.image_url
+     FROM order_items oi
+     JOIN products p ON p.id = oi.product_id
+     WHERE oi.order_id = $1 ORDER BY oi.created_at ASC`,
+    [orderId]
   );
-  sendJson(response, 201, { message: 'Sifariş yaradıldı.', order: { id: orderId, status: 'Gözləmədə', price: priceTotal } });
+  order.items = items;
+  return order;
 }
 
 async function listMyOrders(request, response) {
   const user = await requireUser(request, response); if (!user) return;
-  const { rows } = await pool.query('SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC NULLS LAST', [user.id]);
-  sendJson(response, 200, { orders: rows });
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const status = (url.searchParams.get('status') || '').trim().toLowerCase();
+  let sql = 'SELECT id FROM orders WHERE user_id = $1';
+  const params = [user.id];
+  if (status) { sql += ' AND status_code = $2'; params.push(status); }
+  sql += ' ORDER BY created_at DESC NULLS LAST';
+  const { rows } = await pool.query(sql, params);
+  const orders = [];
+  for (const r of rows) {
+    const o = await orderWithItems(r.id);
+    if (o) orders.push(o);
+  }
+  sendJson(response, 200, { orders });
 }
 
 async function adminListOrders(request, response) {
   const admin = await requireAdmin(request, response); if (!admin) return;
-  const { rows } = await pool.query('SELECT * FROM orders ORDER BY created_at DESC NULLS LAST');
-  sendJson(response, 200, { orders: rows });
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+  const status = (url.searchParams.get('status') || '').trim().toLowerCase();
+  let sql = 'SELECT id FROM orders';
+  const params = [];
+  const conds = [];
+  if (q) {
+    conds.push('(LOWER(user_email) LIKE $' + (params.length + 1) + ' OR LOWER(game) LIKE $' + (params.length + 1) + ' OR id::text = $' + (params.length + 2) + ')');
+    params.push('%' + q + '%', q);
+  }
+  if (status) { conds.push('status_code = $' + (params.length + 1)); params.push(status); }
+  if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
+  sql += ' ORDER BY created_at DESC NULLS LAST LIMIT 300';
+  const { rows } = await pool.query(sql, params);
+  const orders = [];
+  for (const r of rows) {
+    const o = await orderWithItems(r.id);
+    if (o) orders.push(o);
+  }
+  sendJson(response, 200, { orders });
+}
+
+async function adminUpdateOrderStatus(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const orderId = String(body.orderId || '').trim();
+  const newStatus = String(body.status || '').trim().toLowerCase();
+  const allowed = ['pending', 'processing', 'completed', 'rejected'];
+  if (!orderId || !allowed.includes(newStatus)) return sendJson(response, 400, { message: 'Yanlış status.' });
+  const { rows: st } = await pool.query('SELECT id, label FROM order_status WHERE code = $1 LIMIT 1', [newStatus]);
+  if (!st.length) return sendJson(response, 400, { message: 'Status tapılmadı.' });
+  const { rows: orderRows } = await pool.query('SELECT user_id, status_code FROM orders WHERE id = $1 LIMIT 1', [orderId]);
+  if (!orderRows.length) return sendJson(response, 404, { message: 'Sifariş tapılmadı.' });
+  const order = orderRows[0];
+  // Valid transitions: pending->processing, processing->completed, processing->rejected, any->processing (admin override)
+  await pool.query('UPDATE orders SET status_code = $1, status_id = $2, status = $3, updated_at = NOW() WHERE id = $4', [newStatus, st[0].id, st[0].label, orderId]);
+  // Notify user
+  const statusMessages = {
+    pending: 'Sifarişiniz qəbul edildi.',
+    processing: 'Sifarişiniz emal olunur.',
+    completed: 'Sifarişiniz tamamlandı.',
+    rejected: 'Sifarişiniz rədd edildi.'
+  };
+  await dbCreateNotification(order.user_id, statusMessages[newStatus] || 'Sifariş statusu yeniləndi.', `Sifariş #${orderId} statusu: ${st[0].label}.`, 'purchase');
+  ssePushState(order.user_id);
+  sendJson(response, 200, { message: 'Status yeniləndi.', orderId, status: newStatus, statusLabel: st[0].label });
 }
 
 async function adminListUsers(request, response) {
@@ -969,7 +1404,7 @@ async function buyProduct(request, response) {
   // Deduct user balance
   await dbUpdateBalance(user.id, -price);
   // record transaction (debit)
-  await dbCreateTransaction(user.id, price, 'debit', 'approved', `Purchase: ${packageName}`);
+  await dbCreateTransaction(user.id, price, 'debit', 'completed', `Purchase: ${packageName}`, 'purchase', `${packageName} alındı`);
 
   // Save order
   const orderId = crypto.randomUUID();
@@ -977,6 +1412,9 @@ async function buyProduct(request, response) {
     'INSERT INTO orders (id, user_id, user_email, game, package, price, player_id, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
     [orderId, user.id, user.email, game, packageName, price, playerId, 'Tamamlandı']
   );
+
+  await dbCreateNotification(user.id, 'Sifariş tamamlandı', `${packageName} (${price} AZN) uğurla alındı. Oyunçu ID: ${playerId}`, 'purchase');
+  ssePushState(user.id);
 
   const updatedUser = await dbFindUserById(user.id);
   sendJson(response, 200, {
@@ -986,15 +1424,314 @@ async function buyProduct(request, response) {
 }
 
 // ==========================================
+// REAL-TIME HUB (Server-Sent Events)
+// ==========================================
+
+// Map<userId, Set<response>> of active SSE connections
+const sseClients = new Map();
+
+function sseAddClient(userId, response) {
+  if (!sseClients.has(userId)) sseClients.set(userId, new Set());
+  sseClients.get(userId).add(response);
+}
+
+function sseRemoveClient(userId, response) {
+  const set = sseClients.get(userId);
+  if (!set) return;
+  set.delete(response);
+  if (set.size === 0) sseClients.delete(userId);
+}
+
+function sseSend(userId, event, data) {
+  const set = sseClients.get(userId);
+  if (!set || set.size === 0) return;
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of set) {
+    try { res.write(payload); } catch {}
+  }
+}
+
+// Push the latest balance, cart count, and unread notification count to a user
+async function ssePushState(userId) {
+  try {
+    const [u, cart, notif] = await Promise.all([
+      pool.query('SELECT balance FROM users WHERE id = $1 LIMIT 1', [userId]),
+      pool.query('SELECT COALESCE(SUM(quantity),0)::int AS c FROM cart_items WHERE user_id = $1', [userId]),
+      pool.query('SELECT COUNT(*)::int AS c FROM notifications WHERE user_id = $1 AND is_read = false', [userId])
+    ]);
+    sseSend(userId, 'state', {
+      balance: Number(u.rows[0] ? u.rows[0].balance : 0),
+      cartCount: cart.rows[0] ? cart.rows[0].c : 0,
+      unreadCount: notif.rows[0] ? notif.rows[0].c : 0
+    });
+  } catch {}
+}
+
+async function sseStream(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  response.write('retry: 5000\n\n');
+  sseAddClient(user.id, response);
+  // Send initial state immediately
+  ssePushState(user.id);
+  // Heartbeat to keep the connection alive through proxies
+  const heartbeat = setInterval(() => {
+    try { response.write(': ping\n\n'); } catch {}
+  }, 25000);
+  request.on('close', () => {
+    clearInterval(heartbeat);
+    sseRemoveClient(user.id, response);
+  });
+}
+
+// ==========================================
+// SIMPLE IN-MEMORY RATE LIMITER
+// ==========================================
+
+const rateBuckets = new Map();
+
+// Returns true if the request is allowed, false if the limit is exceeded
+function rateLimit(key, limit = 30, windowMs = 60000) {
+  const now = Date.now();
+  const bucket = rateBuckets.get(key);
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (bucket.count >= limit) return false;
+  bucket.count += 1;
+  return true;
+}
+
+function rateKey(request, user, scope) {
+  const ip = (request.headers['x-forwarded-for'] || '').split(',')[0].trim() || request.socket.remoteAddress || 'unknown';
+  return `${scope}:${user ? user.id : ip}`;
+}
+
+// ==========================================
+// BALANCE API
+// ==========================================
+
+async function balanceGet(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const fresh = await dbFindUserById(user.id);
+  if (!fresh) return sendJson(response, 404, { message: 'İstifadəçi tapılmadı.' });
+  sendJson(response, 200, {
+    balance: Number(fresh.balance || 0),
+    currency: 'AZN',
+    userId: fresh.id
+  });
+}
+
+async function balanceHistory(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  let limit = parseInt(url.searchParams.get('limit') || '50', 10);
+  if (!Number.isFinite(limit) || limit <= 0 || limit > 200) limit = 50;
+  // Ownership enforced via user_id filter
+  const { rows } = await pool.query(
+    `SELECT id, amount, type, status, category, COALESCE(description, ref) AS description, created_at
+     FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+    [user.id, limit]
+  );
+  sendJson(response, 200, { history: rows });
+}
+
+async function balanceTopup(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  if (!rateLimit(rateKey(request, user, 'topup'), 10, 60000)) {
+    return sendJson(response, 429, { message: 'Çox sayda sorğu. Bir az gözləyin.' });
+  }
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  let amount = Number(body.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return sendJson(response, 400, { message: 'Düzgün məbləğ daxil edin.' });
+  }
+  if (amount > 10000) {
+    return sendJson(response, 400, { message: 'Maksimum 10000 AZN əlavə edilə bilər.' });
+  }
+  amount = Math.round(amount * 100) / 100;
+
+  await dbUpdateBalance(user.id, amount);
+  await dbCreateTransaction(user.id, amount, 'credit', 'completed', 'Balance top-up', 'deposit', `Balansa ${amount} AZN əlavə edildi`);
+  await dbCreateNotification(user.id, 'Balans artırıldı', `Hesabınıza ${amount.toFixed(2)} AZN əlavə olundu.`, 'balance');
+  const fresh = await dbFindUserById(user.id);
+  ssePushState(user.id);
+  sendJson(response, 200, {
+    message: `${amount.toFixed(2)} AZN balansınıza əlavə edildi.`,
+    balance: Number(fresh.balance || 0),
+    currency: 'AZN'
+  });
+}
+
+// ==========================================
+// CART API
+// ==========================================
+
+async function dbCartSummary(userId) {
+  const { rows } = await pool.query(
+    `SELECT ci.id, ci.product_id, ci.quantity, ci.created_at,
+            p.game, p.title, p.price, p.image_url, p.available
+     FROM cart_items ci
+     JOIN products p ON p.id = ci.product_id
+     WHERE ci.user_id = $1
+     ORDER BY ci.created_at DESC`,
+    [userId]
+  );
+  const items = rows.map(r => ({
+    id: r.id,
+    productId: r.product_id,
+    game: r.game,
+    title: r.title,
+    price: Number(r.price),
+    imageUrl: r.image_url,
+    available: r.available,
+    quantity: r.quantity,
+    lineTotal: Math.round(Number(r.price) * r.quantity * 100) / 100
+  }));
+  const subtotal = Math.round(items.reduce((s, i) => s + i.lineTotal, 0) * 100) / 100;
+  const count = items.reduce((s, i) => s + i.quantity, 0);
+  return { items, subtotal, count, currency: 'AZN' };
+}
+
+async function cartGet(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  sendJson(response, 200, { cart: await dbCartSummary(user.id) });
+}
+
+async function cartAddItem(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  if (!rateLimit(rateKey(request, user, 'cart'), 60, 60000)) {
+    return sendJson(response, 429, { message: 'Çox sayda sorğu. Bir az gözləyin.' });
+  }
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const productId = String(body.productId || '').trim();
+  let quantity = parseInt(body.quantity || 1, 10);
+  if (!productId) return sendJson(response, 400, { message: 'productId tələb olunur.' });
+  if (!Number.isFinite(quantity) || quantity <= 0) quantity = 1;
+  if (quantity > 99) quantity = 99;
+
+  const { rows: prod } = await pool.query('SELECT id, available FROM products WHERE id = $1 LIMIT 1', [productId]);
+  if (prod.length === 0) return sendJson(response, 404, { message: 'Məhsul tapılmadı.' });
+  if (prod[0].available === false) return sendJson(response, 400, { message: 'Bu məhsul mövcud deyil.' });
+
+  const id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO cart_items (id, user_id, product_id, quantity)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (user_id, product_id)
+     DO UPDATE SET quantity = LEAST(cart_items.quantity + EXCLUDED.quantity, 99), updated_at = CURRENT_TIMESTAMP`,
+    [id, user.id, productId, quantity]
+  );
+  const cart = await dbCartSummary(user.id);
+  ssePushState(user.id);
+  sendJson(response, 201, { message: 'Səbətə əlavə edildi.', cart });
+}
+
+async function cartUpdateItem(request, response, itemId) {
+  const user = await requireUser(request, response); if (!user) return;
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  let quantity = parseInt(body.quantity, 10);
+  if (!Number.isFinite(quantity) || quantity < 0) return sendJson(response, 400, { message: 'Düzgün miqdar daxil edin.' });
+  if (quantity > 99) quantity = 99;
+
+  // Ownership: only update rows that belong to this user
+  if (quantity === 0) {
+    await pool.query('DELETE FROM cart_items WHERE id = $1 AND user_id = $2', [itemId, user.id]);
+  } else {
+    const { rowCount } = await pool.query(
+      'UPDATE cart_items SET quantity = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3',
+      [quantity, itemId, user.id]
+    );
+    if (rowCount === 0) return sendJson(response, 404, { message: 'Səbət elementi tapılmadı.' });
+  }
+  const cart = await dbCartSummary(user.id);
+  ssePushState(user.id);
+  sendJson(response, 200, { message: 'Səbət yeniləndi.', cart });
+}
+
+async function cartRemoveItem(request, response, itemId) {
+  const user = await requireUser(request, response); if (!user) return;
+  const { rowCount } = await pool.query('DELETE FROM cart_items WHERE id = $1 AND user_id = $2', [itemId, user.id]);
+  if (rowCount === 0) return sendJson(response, 404, { message: 'Səbət elementi tapılmadı.' });
+  const cart = await dbCartSummary(user.id);
+  ssePushState(user.id);
+  sendJson(response, 200, { message: 'Səbətdən silindi.', cart });
+}
+
+async function cartClear(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  await pool.query('DELETE FROM cart_items WHERE user_id = $1', [user.id]);
+  const cart = await dbCartSummary(user.id);
+  ssePushState(user.id);
+  sendJson(response, 200, { message: 'Səbət təmizləndi.', cart });
+}
+
+// ==========================================
+// NOTIFICATIONS API
+// ==========================================
+
+async function notificationsList(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  let limit = parseInt(url.searchParams.get('limit') || '30', 10);
+  if (!Number.isFinite(limit) || limit <= 0 || limit > 100) limit = 30;
+  const { rows } = await pool.query(
+    `SELECT id, title, message, type, is_read, created_at
+     FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+    [user.id, limit]
+  );
+  const { rows: unread } = await pool.query(
+    'SELECT COUNT(*)::int AS c FROM notifications WHERE user_id = $1 AND is_read = false', [user.id]
+  );
+  sendJson(response, 200, { notifications: rows, unreadCount: unread[0] ? unread[0].c : 0 });
+}
+
+async function notificationMarkRead(request, response, notifId) {
+  const user = await requireUser(request, response); if (!user) return;
+  const { rowCount } = await pool.query(
+    'UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2', [notifId, user.id]
+  );
+  if (rowCount === 0) return sendJson(response, 404, { message: 'Bildiriş tapılmadı.' });
+  ssePushState(user.id);
+  sendJson(response, 200, { message: 'Oxundu olaraq işarələndi.' });
+}
+
+async function notificationMarkAllRead(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  await pool.query('UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false', [user.id]);
+  ssePushState(user.id);
+  sendJson(response, 200, { message: 'Bütün bildirişlər oxundu.' });
+}
+
+async function notificationDelete(request, response, notifId) {
+  const user = await requireUser(request, response); if (!user) return;
+  const { rowCount } = await pool.query('DELETE FROM notifications WHERE id = $1 AND user_id = $2', [notifId, user.id]);
+  if (rowCount === 0) return sendJson(response, 404, { message: 'Bildiriş tapılmadı.' });
+  ssePushState(user.id);
+  sendJson(response, 200, { message: 'Bildiriş silindi.' });
+}
+
+// ==========================================
 // STATIC FILE SERVER
 // ==========================================
 
 async function serveStatic(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   // Map pretty paths like /pubg to /pubg.html, then resolve safely under ROOT
-  const pretty = url.pathname === '/' ? 'index.html'
-    : (url.pathname === '/pubg' || url.pathname === '/pubg/') ? 'pubg.html'
-    : decodeURIComponent(url.pathname).replace(/^\/+/, '');
+  const pathName = url.pathname;
+  const isCat = /^\/category\/[^/]+\/?$/.test(pathName);
+  const pretty = pathName === '/' ? 'index.html'
+    : (pathName === '/pubg' || pathName === '/pubg/') ? 'pubg.html'
+    : (pathName === '/balance/topup' || pathName === '/balance/topup/') ? 'profile.html'
+    : (pathName === '/cart' || pathName === '/cart/') ? 'cart.html'
+    : isCat ? 'category.html'
+    : decodeURIComponent(pathName).replace(/^\/+/, '');
   const relPath = pretty;
   const filePath = path.resolve(ROOT, relPath);
 
@@ -1034,14 +1771,25 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/api/support') return await support(request, response);
     if (request.method === 'POST' && request.url === '/api/favorites/toggle') return await toggleFavorite(request, response);
     if (request.method === 'POST' && request.url === '/api/buy') return await buyProduct(request, response);
+    if (request.method === 'GET' && /^\/api\/products\/[^/]+$/.test(request.url)) return await productGet(request, response, decodeURIComponent(request.url.split('/').pop()));
     if (request.method === 'GET' && request.url.startsWith('/api/products')) return await products(request, response);
+    if (request.method === 'GET' && /^\/api\/categories\/[^/]+$/.test(request.url)) return await categoryGet(request, response, decodeURIComponent(request.url.split('/').pop()));
+    if (request.method === 'GET' && request.url.startsWith('/api/categories')) return await categoriesList(request, response);
+    if (request.method === 'GET' && /^\/api\/category\/[^/]+\/products$/.test(request.url)) return await categoryProducts(request, response, decodeURIComponent(request.url.split('/')[3]));
     if (request.method === 'POST' && request.url === '/api/orders') return await createOrder(request, response);
     if (request.method === 'GET' && request.url === '/api/orders') return await listMyOrders(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/products') return await adminCreateProduct(request, response);
     if (request.method === 'PUT' && request.url.startsWith('/api/admin/products')) return await adminUpdateProduct(request, response);
     if (request.method === 'DELETE' && request.url.startsWith('/api/admin/products')) return await adminDeleteProduct(request, response);
+    if (request.method === 'GET' && request.url === '/api/admin/categories') return await adminCategoriesList(request, response);
+    if (request.method === 'GET' && request.url === '/api/admin/products') return await adminProductsList(request, response);
+    if (request.method === 'POST' && request.url === '/api/admin/categories') return await adminCreateCategory(request, response);
+    if (request.method === 'PUT' && request.url.startsWith('/api/admin/categories')) return await adminUpdateCategory(request, response);
+    if (request.method === 'DELETE' && request.url.startsWith('/api/admin/categories')) return await adminDeleteCategory(request, response);
     if (request.method === 'GET' && request.url === '/api/admin/orders') return await adminListOrders(request, response);
+    if (request.method === 'PUT' && request.url === '/api/admin/orders/status') return await adminUpdateOrderStatus(request, response);
     if (request.method === 'GET' && request.url === '/api/admin/users') return await adminListUsers(request, response);
+    if (request.method === 'POST' && request.url === '/api/cart/checkout') return await cartCheckout(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/balance/adjust') return await adminAdjustBalance(request, response);
     if (request.method === 'POST' && request.url === '/api/avatar/requests') return await submitAvatarRequest(request, response);
     if (request.method === 'GET' && request.url === '/api/avatar/requests') return await listMyAvatarRequests(request, response);
@@ -1050,12 +1798,42 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && request.url.startsWith('/api/admin/avatar/requests')) return await adminListAvatarRequests(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/avatar/approve') return await adminApproveAvatar(request, response);
 
+    // Real-time stream (Server-Sent Events)
+    if (request.method === 'GET' && request.url === '/api/stream') return await sseStream(request, response);
+
+    // Balance API
+    if (request.method === 'GET' && request.url === '/api/balance') return await balanceGet(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/balance/history')) return await balanceHistory(request, response);
+    if (request.method === 'POST' && request.url === '/api/balance/topup') return await balanceTopup(request, response);
+
+    // Cart API
+    if (request.method === 'GET' && request.url === '/api/cart') return await cartGet(request, response);
+    if (request.method === 'POST' && request.url === '/api/cart/items') return await cartAddItem(request, response);
+    if (request.method === 'DELETE' && request.url === '/api/cart/clear') return await cartClear(request, response);
+    if (request.method === 'PUT' && /^\/api\/cart\/items\/[^/]+$/.test(request.url)) {
+      return await cartUpdateItem(request, response, decodeURIComponent(request.url.split('/').pop()));
+    }
+    if (request.method === 'DELETE' && /^\/api\/cart\/items\/[^/]+$/.test(request.url)) {
+      return await cartRemoveItem(request, response, decodeURIComponent(request.url.split('/').pop()));
+    }
+
+    // Notifications API
+    if (request.method === 'GET' && request.url.startsWith('/api/notifications')) return await notificationsList(request, response);
+    if (request.method === 'PATCH' && request.url === '/api/notifications/read-all') return await notificationMarkAllRead(request, response);
+    if (request.method === 'PATCH' && /^\/api\/notifications\/[^/]+\/read$/.test(request.url)) {
+      return await notificationMarkRead(request, response, decodeURIComponent(request.url.split('/')[3]));
+    }
+    if (request.method === 'DELETE' && /^\/api\/notifications\/[^/]+$/.test(request.url)) {
+      return await notificationDelete(request, response, decodeURIComponent(request.url.split('/').pop()));
+    }
+
     // Admin panel routes (Node.js replacement for PHP admin)
     if (request.url === '/admin/login' || request.url.startsWith('/admin/login?')) return await admin.rLogin(request, response, pool);
     if (request.url === '/admin/logout') return await admin.rLogout(request, response);
     if (request.url === '/admin/' || request.url === '/admin' || request.url.startsWith('/admin/?')) return await admin.rDashboard(request, response, pool);
     if (request.url === '/admin/users' || request.url.startsWith('/admin/users?')) return await admin.rUsers(request, response, pool);
     if (request.url === '/admin/orders' || request.url.startsWith('/admin/orders?')) return await admin.rOrders(request, response, pool);
+    if (request.url === '/admin/categories' || request.url.startsWith('/admin/categories?')) return await admin.rCategories(request, response, pool);
     if (request.url === '/admin/products' || request.url.startsWith('/admin/products?')) return await admin.rProducts(request, response, pool);
     if (request.url === '/admin/balance-requests' || request.url.startsWith('/admin/balance-requests?')) return await admin.rBalanceRequests(request, response, pool);
     if (request.url === '/admin/deposits' || request.url.startsWith('/admin/deposits?')) return await admin.rDeposits(request, response, pool);
@@ -1078,6 +1856,8 @@ const server = http.createServer(async (request, response) => {
     await pool.query('SELECT NOW()');
     await dbEnsureSchema();
     await admin.ensureAdminSchema(pool);
+    // Let admin routes broadcast real-time state updates (e.g. deposit approvals)
+    if (admin.setSsePush) admin.setSsePush(ssePushState);
     console.log('PostgreSQL connection successful.');
   } catch (error) {
     console.error(`[Warn] PostgreSQL connection failed. Details: ${error.message}`);
