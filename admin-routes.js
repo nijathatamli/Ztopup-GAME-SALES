@@ -1,4 +1,7 @@
 const crypto = require('crypto');
+const fs = require('fs/promises');
+const path = require('path');
+const bcrypt = require('bcryptjs');
 
 const adminSessions = new Map();
 const SESSION_TIMEOUT = 30 * 60 * 1000;
@@ -53,8 +56,8 @@ function parseCookies(r){const raw=r.headers.cookie||'',c={};raw.split(';').forE
 function setCookie(r,name,val,age=1800){r.setHeader('Set-Cookie',`${name}=${encodeURIComponent(val)}; HttpOnly; Path=/admin; Max-Age=${age}; SameSite=Lax`);}
 function clearCookie(r,name){r.setHeader('Set-Cookie',`${name}=; HttpOnly; Path=/admin; Max-Age=0; SameSite=Lax`);}
 function csrfToken(){return crypto.randomBytes(32).toString('hex');}
-function hashPw(pw,salt=crypto.randomBytes(16).toString('hex')){return salt+':'+crypto.scryptSync(pw,salt,64).toString('hex');}
-function verifyPw(pw,stored){const[salt,oh]=stored.split(':');if(!salt||!oh)return false;const h=crypto.scryptSync(pw,salt,64);const o=Buffer.from(oh,'hex');return o.length===h.length&&crypto.timingSafeEqual(o,h);}
+function hashPw(pw){return bcrypt.hashSync(pw,10);}
+function verifyPw(pw,stored){if(!stored)return false;if(/^\$2[ayb]\$/.test(stored))return bcrypt.compareSync(pw,stored.replace(/^\$2y\$/,'$2a$'));const[salt,oh]=stored.split(':');if(!salt||!oh)return false;const h=crypto.scryptSync(pw,salt,64);const o=Buffer.from(oh,'hex');return o.length===h.length&&crypto.timingSafeEqual(o,h);}
 async function sendHtml(res,code,html){res.writeHead(code,{'Content-Type':'text/html; charset=utf-8'});res.end(html);}
 async function readBody(req){return new Promise((resolve,reject)=>{let b='';req.on('data',c=>{b+=c;if(b.length>1_000_000){req.destroy();reject(new Error('Too large'));}});req.on('end',()=>{try{resolve(JSON.parse(b));}catch{const o={};b.split('&').forEach(p=>{const[k,v]=p.split('=');if(k)o[decodeURIComponent(k)]=decodeURIComponent(v||'');});resolve(o);}});req.on('error',reject);});}
 
