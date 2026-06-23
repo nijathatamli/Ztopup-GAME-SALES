@@ -35,7 +35,22 @@ dialog input,dialog textarea{width:100%;box-sizing:border-box}
 .stat{font-family:Orbitron,sans-serif;font-size:28px;font-weight:800}
 .grid{display:grid;gap:14px;padding:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
 .flash-ok{border-color:rgba(0,255,127,.25)!important;color:#a3ffcf!important}
-.flash-bad{border-color:rgba(255,99,71,.35)!important;color:#ffb3a7!important}`;
+.flash-bad{border-color:rgba(255,99,71,.35)!important;color:#ffb3a7!important}
+@media(max-width:760px){
+  .wrap{padding:12px}
+  .card{padding:12px;border-radius:12px;margin-bottom:12px}
+  header{flex-wrap:wrap;gap:10px;padding:12px 14px}
+  header nav{display:flex;flex-wrap:wrap;gap:4px 0;width:100%}
+  a{margin-right:12px;font-size:14px;line-height:2}
+  table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+  th,td{font-size:13px;padding:7px 8px}
+  input,select,textarea,button{font-size:16px;min-height:44px;box-sizing:border-box}
+  .actions{flex-direction:column;align-items:stretch}
+  .actions button,.actions a{width:100%}
+  .thumb{width:60px;height:60px}
+  .field-row{grid-template-columns:1fr 1fr!important}
+  .stat{font-size:24px}
+}`;
 
 function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 

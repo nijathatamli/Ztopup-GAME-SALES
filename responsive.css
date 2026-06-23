@@ -1,0 +1,155 @@
+/* ==========================================================================
+   ZTopUp — Global Mobile-First Responsive Layer
+   Load this LAST in <head> (after inline <style> and shared-background.css)
+   so media-query overrides win on equal specificity.
+
+   Supported widths: 320 / 360 / 375 / 390 / 412 / 430 / 768 / 1024+
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. GLOBAL SAFE RESETS (all viewports)
+   -------------------------------------------------------------------------- */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Prevent the #1 mobile bug: horizontal scrolling / page shift */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+* { -webkit-tap-highlight-color: rgba(255, 179, 0, 0.18); }
+
+/* Media never overflows its container (class-scoped img rules still win) */
+img,
+video,
+canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Long words / URLs should wrap, not blow out the layout */
+p, li, a, span, h1, h2, h3, h4, label, td, th, div {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+/* Smooth momentum scrolling on iOS for any scroll container */
+.z-scroll-x { -webkit-overflow-scrolling: touch; }
+
+/* --------------------------------------------------------------------------
+   2. TABLET  (<= 1024px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 1024px) {
+  .main { padding: 26px clamp(16px, 3.5vw, 40px) 44px; }
+
+  /* Common grids step down */
+  .category-grid { grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+
+  /* Two-column hero/promo become single column */
+  .hero-content { grid-template-columns: 1fr; }
+  .promo { grid-template-columns: 1fr; }
+}
+
+/* --------------------------------------------------------------------------
+   3. MOBILE / SMALL TABLET  (<= 768px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .main { padding: 20px 16px 36px; }
+
+  /* Typography: keep headings readable but not huge */
+  h1 { font-size: clamp(26px, 7vw, 40px); line-height: 1.1; }
+  h2 { font-size: clamp(22px, 6vw, 32px); line-height: 1.15; }
+  h3 { font-size: clamp(18px, 5vw, 24px); }
+
+  /* Grids */
+  .category-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .stats { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+
+  /* Section heads stack */
+  .section-head { flex-wrap: wrap; gap: 8px; }
+
+  /* ---- Forms: touch + iOS-zoom-safe ---- */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;      /* prevents iOS auto-zoom on focus */
+    min-height: 48px;
+    border-radius: 12px;
+  }
+  textarea { min-height: 110px; }
+
+  /* ---- Buttons: minimum 48px touch target ---- */
+  button,
+  .btn,
+  .cta,
+  .auth-submit,
+  a.button,
+  [role="button"] {
+    min-height: 48px;
+  }
+
+  /* ---- Tables -> horizontal scroll container ---- */
+  .z-table-wrap,
+  .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; }
+
+  /* Cards / panels: reduce oversized padding & radius */
+  .content-card { padding: 20px 16px !important; border-radius: 18px !important; }
+  .page-hero { padding: 26px 18px !important; border-radius: 20px !important; }
+}
+
+/* --------------------------------------------------------------------------
+   4. PHONE  (<= 480px)   — iPhone SE / 12-15 / Pixel / Galaxy
+   -------------------------------------------------------------------------- */
+@media (max-width: 480px) {
+  .main { padding: 16px 14px 32px; }
+
+  .category-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* Generic two-column flex/grid layouts collapse */
+  .row-2,
+  .grid-2,
+  .split { grid-template-columns: 1fr !important; }
+
+  /* Modal dialogs go near-fullscreen and scrollable */
+  .modal,
+  .dialog,
+  .sheet {
+    width: min(94vw, 460px) !important;
+    max-height: 88vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   5. SMALL PHONE  (<= 360px)  — iPhone SE 1st gen / small Androids
+   -------------------------------------------------------------------------- */
+@media (max-width: 360px) {
+  .main { padding: 14px 12px 28px; }
+  .category-grid { grid-template-columns: 1fr; }
+}
+
+/* --------------------------------------------------------------------------
+   6. ACCESSIBILITY — respect reduced motion
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

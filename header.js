@@ -31,6 +31,7 @@
   let notifications = [];
   let sse = null;
   let openDropdown = null; // 'cart' | 'messages' | null
+  let mobileMenuOpen = false;
   const currencySymbol = '₼';
 
   /* =====================================================================
@@ -46,6 +47,9 @@
     close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
     spinner: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ztopup-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`,
     check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`,
+    menu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>`,
+    logout: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>`,
+    chevron: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>`,
   };
 
   function h(html) {
@@ -259,9 +263,49 @@
               <button class="logout" id="ztopupLogoutBtn">Çıxış</button>
             </div>
             ${userActionBar}
+            <button class="z-burger" id="ztopupBurger" type="button" aria-label="Menyu" aria-expanded="${mobileMenuOpen ? 'true' : 'false'}">
+              ${ICONS.menu}
+            </button>
           </div>
         </header>
+        ${buildMobileDrawer(navItems)}
       </div>
+    `;
+  }
+
+  function buildMobileDrawer() {
+    const path = window.location.pathname;
+    const links = CONFIG.nav.map((n) => {
+      const isActive = n.href === path || (n.href !== '/' && path.startsWith(n.href));
+      return `<a href="${n.href}" class="z-drawer-link ${isActive ? 'active' : ''}">${n.label}${ICONS.chevron}</a>`;
+    }).join('');
+
+    const account = currentUser
+      ? `<div class="z-drawer-user">
+           <span class="z-drawer-avatar" id="ztopupDrawerAvatar">${(currentUser.name || 'U').slice(0,1).toUpperCase()}</span>
+           <div class="z-drawer-user-info">
+             <div class="z-drawer-user-name">${currentUser.name || 'İstifadəçi'}</div>
+             <div class="z-drawer-balance">${currencySymbol}${formatMoney(state.balance)}</div>
+           </div>
+         </div>
+         <a href="${CONFIG.balanceTopup}" class="z-drawer-btn z-drawer-btn-primary">${ICONS.wallet}<span>Balans artır</span></a>
+         <a href="${CONFIG.cartPage}" class="z-drawer-btn">${ICONS.cart}<span>Səbət${state.cartCount > 0 ? ` (${state.cartCount})` : ''}</span></a>
+         <button class="z-drawer-btn z-drawer-logout" id="ztopupDrawerLogout" type="button">${ICONS.logout}<span>Çıxış</span></button>`
+      : `<button class="z-drawer-btn z-drawer-btn-primary" id="ztopupDrawerLogin" type="button">${ICONS.user}<span>Login / Qeydiyyat</span></button>`;
+
+    return `
+      <div class="z-drawer-scrim ${mobileMenuOpen ? 'z-open' : ''}" id="ztopupDrawerScrim"></div>
+      <aside class="z-drawer ${mobileMenuOpen ? 'z-open' : ''}" id="ztopupDrawer" aria-hidden="${mobileMenuOpen ? 'false' : 'true'}">
+        <div class="z-drawer-head">
+          <a href="${CONFIG.brand.home}" class="z-drawer-brand">
+            <div class="logo-mark"><img src="assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"></div>
+            <span>${CONFIG.brand.name}</span>
+          </a>
+          <button class="z-drawer-close" id="ztopupDrawerClose" type="button" aria-label="Bağla">${ICONS.close}</button>
+        </div>
+        <nav class="z-drawer-nav" aria-label="Mobil naviqasiya">${links}</nav>
+        <div class="z-drawer-account">${account}</div>
+      </aside>
     `;
   }
 
@@ -363,6 +407,19 @@
     if (logoutBtn) logoutBtn.addEventListener('click', logout);
     if (loginBtn) loginBtn.addEventListener('click', () => openLogin());
 
+    // Mobile drawer
+    const burger = document.getElementById('ztopupBurger');
+    const drawerClose = document.getElementById('ztopupDrawerClose');
+    const scrim = document.getElementById('ztopupDrawerScrim');
+    const drawerLogin = document.getElementById('ztopupDrawerLogin');
+    const drawerLogout = document.getElementById('ztopupDrawerLogout');
+    if (burger) burger.addEventListener('click', () => setMobileMenu(!mobileMenuOpen));
+    if (drawerClose) drawerClose.addEventListener('click', () => setMobileMenu(false));
+    if (scrim) scrim.addEventListener('click', () => setMobileMenu(false));
+    if (drawerLogin) drawerLogin.addEventListener('click', () => { setMobileMenu(false); openLogin(); });
+    if (drawerLogout) drawerLogout.addEventListener('click', () => { setMobileMenu(false); logout(); });
+    document.querySelectorAll('.z-drawer-link').forEach((a) => a.addEventListener('click', () => setMobileMenu(false)));
+
     // Close buttons
     document.querySelectorAll('.z-dd-close[data-close]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); closeDropdowns(); }));
     document.querySelectorAll('[data-read]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); markRead(b.dataset.read); }));
@@ -370,6 +427,17 @@
     document.querySelectorAll('[data-delete]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); deleteNotification(b.dataset.delete); }));
     document.querySelectorAll('[data-remove]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); removeCartItem(b.dataset.remove); }));
     document.querySelectorAll('[data-clear]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); clearCart(); }));
+  }
+
+  function setMobileMenu(open) {
+    mobileMenuOpen = open;
+    const drawer = document.getElementById('ztopupDrawer');
+    const scrim = document.getElementById('ztopupDrawerScrim');
+    const burger = document.getElementById('ztopupBurger');
+    if (drawer) { drawer.classList.toggle('z-open', open); drawer.setAttribute('aria-hidden', open ? 'false' : 'true'); }
+    if (scrim) scrim.classList.toggle('z-open', open);
+    if (burger) burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    document.body.style.overflow = open ? 'hidden' : '';
   }
 
   function openLogin() {
@@ -404,7 +472,7 @@
     if (!e.target.closest('.z-action-wrap')) closeDropdowns();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeDropdowns();
+    if (e.key === 'Escape') { closeDropdowns(); if (mobileMenuOpen) setMobileMenu(false); }
   });
   window.addEventListener('ztopup:login', () => restoreSession());
   window.addEventListener('ztopup:cart', () => loadState());
@@ -569,6 +637,129 @@
     .ztopup-header .logout { border: 0; color: var(--z-gold); background: transparent; cursor: pointer; font-weight: 800; font-size: 13px; }
     .ztopup-header .z-hidden { display: none !important; }
 
+    /* Hamburger button (hidden on desktop) */
+    .ztopup-header .z-burger {
+      display: none;
+      width: 46px; height: 46px;
+      border-radius: 13px;
+      align-items: center; justify-content: center;
+      border: 1px solid rgba(255,179,0,.4);
+      background: linear-gradient(180deg, rgba(255,179,0,.12), rgba(255,179,0,.04));
+      color: var(--z-gold);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ztopup-header .z-burger:active { transform: scale(0.94); }
+    .ztopup-header .z-burger svg { width: 24px; height: 24px; }
+
+    /* Mobile drawer */
+    .ztopup-header .z-drawer-scrim {
+      position: fixed; inset: 0; z-index: 998;
+      background: rgba(0,0,0,.6);
+      backdrop-filter: blur(4px);
+      opacity: 0; visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    .ztopup-header .z-drawer-scrim.z-open { opacity: 1; visibility: visible; }
+    .ztopup-header .z-drawer {
+      position: fixed; top: 0; right: 0; z-index: 999;
+      height: 100dvh; width: min(86vw, 340px);
+      display: flex; flex-direction: column;
+      background: linear-gradient(180deg, #0d0b16 0%, #070710 100%);
+      border-left: 1px solid rgba(255,179,0,.18);
+      box-shadow: -30px 0 80px rgba(0,0,0,.6);
+      transform: translateX(100%);
+      transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .ztopup-header .z-drawer.z-open { transform: translateX(0); }
+    .ztopup-header .z-drawer-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 20px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .ztopup-header .z-drawer-brand {
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: none;
+      color: var(--z-gold); font-family: 'Orbitron', sans-serif; font-size: 15px; font-weight: 900; letter-spacing: 0.08em;
+    }
+    .ztopup-header .z-drawer-brand .logo-mark { width: 38px; height: 38px; border-radius: 12px; }
+    .ztopup-header .z-drawer-close {
+      width: 42px; height: 42px; border-radius: 11px;
+      display: grid; place-items: center;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.05);
+      color: rgba(255,255,255,.75);
+      cursor: pointer; transition: 0.2s;
+    }
+    .ztopup-header .z-drawer-close:active { transform: scale(0.94); }
+    .ztopup-header .z-drawer-close svg { width: 20px; height: 20px; }
+    .ztopup-header .z-drawer-nav {
+      display: flex; flex-direction: column;
+      padding: 14px;
+      gap: 6px;
+    }
+    .ztopup-header .z-drawer-link {
+      display: flex; align-items: center; justify-content: space-between;
+      min-height: 54px;
+      padding: 0 16px;
+      border-radius: 14px;
+      color: rgba(255,255,255,.82);
+      text-decoration: none;
+      font-family: 'Rajdhani', sans-serif; font-size: 17px; font-weight: 700; letter-spacing: 0.02em;
+      transition: 0.2s ease;
+    }
+    .ztopup-header .z-drawer-link svg { width: 18px; height: 18px; opacity: 0.4; }
+    .ztopup-header .z-drawer-link:active { background: rgba(255,255,255,.06); }
+    .ztopup-header .z-drawer-link.active {
+      background: linear-gradient(135deg, rgba(255,179,0,.18), rgba(255,179,0,.06));
+      color: var(--z-gold);
+      border: 1px solid rgba(255,179,0,.3);
+    }
+    .ztopup-header .z-drawer-link.active svg { opacity: 1; color: var(--z-gold); }
+    .ztopup-header .z-drawer-account {
+      margin-top: auto;
+      display: flex; flex-direction: column; gap: 10px;
+      padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+      border-top: 1px solid rgba(255,255,255,.08);
+    }
+    .ztopup-header .z-drawer-user {
+      display: flex; align-items: center; gap: 12px;
+      padding: 6px 4px 12px;
+    }
+    .ztopup-header .z-drawer-avatar {
+      width: 46px; height: 46px; border-radius: 50%;
+      display: grid; place-items: center; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--z-blue), var(--z-purple));
+      color: #02020a; font-size: 18px; font-weight: 800;
+    }
+    .ztopup-header .z-drawer-user-name { font-size: 16px; font-weight: 800; color: #fff; }
+    .ztopup-header .z-drawer-balance { font-family: 'Orbitron', sans-serif; font-size: 15px; font-weight: 900; color: var(--z-gold); }
+    .ztopup-header .z-drawer-btn {
+      display: flex; align-items: center; gap: 12px;
+      min-height: 52px;
+      padding: 0 18px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.05);
+      color: rgba(255,255,255,.85);
+      font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700;
+      text-decoration: none; cursor: pointer; transition: 0.2s ease;
+      width: 100%;
+    }
+    .ztopup-header .z-drawer-btn svg { width: 20px; height: 20px; }
+    .ztopup-header .z-drawer-btn:active { transform: scale(0.98); }
+    .ztopup-header .z-drawer-btn-primary {
+      border: 0;
+      background: linear-gradient(135deg, var(--z-gold), var(--z-gold-2));
+      color: #120a00;
+      box-shadow: var(--z-gold-glow);
+    }
+    .ztopup-header .z-drawer-logout { color: #ff7b7b; border-color: rgba(255,80,80,.3); }
+
     /* User action bar */
     .ztopup-header .z-user-bar {
       display: flex; align-items: center; gap: 10px;
@@ -730,23 +921,33 @@
     .ztopup-header .z-msg-btn.z-msg-trash:hover { color: #ff6b6b; background: rgba(255,50,50,.15); }
     .ztopup-header .z-msg-btn svg { width: 13px; height: 13px; }
 
-    @media (max-width: 1020px) {
-      .ztopup-header .header { flex-wrap: wrap; gap: 14px; }
-      .ztopup-header .header-actions { width: 100%; justify-content: space-between; }
-      .ztopup-header .z-user-bar { margin-left: 0; padding-left: 0; border-left: 0; border-top: var(--z-line); padding-top: 10px; width: 100%; justify-content: flex-end; }
-    }
-    @media (max-width: 720px) {
-      .ztopup-header .header { padding: 12px 14px; }
-      .ztopup-header .logo-mark { width: 40px; height: 40px; font-size: 22px; border-radius: 13px; }
-      .ztopup-header .brand { font-size: 14px; }
-      .ztopup-header .nav { display: none; }
-      .ztopup-header .navbtn { font-size: 11px; padding: 8px 12px; }
-      .ztopup-header .z-user-bar { gap: 8px; }
+    /* Tablet: condense the desktop bar before switching to drawer */
+    @media (max-width: 1080px) {
+      .ztopup-header .navbtn { font-size: 11px; padding: 9px 13px; }
       .ztopup-header .z-balance-info { min-width: 60px; }
-      .ztopup-header .z-balance-amount { font-size: 13px; }
       .ztopup-header .z-btn-label { display: none; }
-      .ztopup-header .z-action-btn { padding: 8px; }
-      .ztopup-header .z-dropdown { right: -40px; width: min(92vw, 320px); }
+      .ztopup-header .z-action-btn { padding: 9px; }
+    }
+    /* Mobile + small tablet: hamburger drawer takes over */
+    @media (max-width: 900px) {
+      .ztopup-header .header {
+        padding: 12px clamp(14px, 4vw, 28px);
+        gap: 12px;
+      }
+      .ztopup-header .nav,
+      .ztopup-header .login,
+      .ztopup-header .user-chip,
+      .ztopup-header .z-user-bar { display: none !important; }
+      .ztopup-header .z-burger { display: inline-flex; }
+      .ztopup-header .header-actions { gap: 10px; }
+    }
+    @media (max-width: 480px) {
+      .ztopup-header .header { padding: 11px 14px; }
+      .ztopup-header .logo-mark { width: 40px; height: 40px; font-size: 22px; border-radius: 12px; }
+      .ztopup-header .brand { font-size: 15px; letter-spacing: 0.08em; }
+    }
+    @media (max-width: 340px) {
+      .ztopup-header .brand { display: none; }
     }
   `;
 
