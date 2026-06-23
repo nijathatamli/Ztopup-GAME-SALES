@@ -25,7 +25,6 @@
     authModal: '#authOverlay',
   };
 
-  /* state */
   let currentUser = null;
   let state = { balance: 0, cartCount: 0, unreadCount: 0, loading: true };
   let cart = null; // full cart data

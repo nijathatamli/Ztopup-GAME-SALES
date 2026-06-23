@@ -78,6 +78,8 @@
       width: 100%;
       position: relative;
       z-index: 1;
+      flex-shrink: 0;
+      margin-top: auto;
     }
     .ztopup-footer::before {
       content: '';

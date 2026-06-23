@@ -149,19 +149,11 @@
   .main{width:min(1220px,100%);margin:0 auto;padding:30px clamp(16px,4vw,64px) 54px}
   .hero{
     position:relative;
-    min-height:560px;
-    border:var(--line);
     border-radius:28px;
     overflow:hidden;
-    padding:46px clamp(24px,4vw,58px) 28px;
-    background:
-      radial-gradient(circle at 55% 42%,rgba(0,200,255,.18),transparent 22%),
-      radial-gradient(circle at 79% 42%,rgba(138,46,255,.42),transparent 34%),
-      linear-gradient(112deg,rgba(18,9,46,.96),rgba(5,5,5,.86) 54%,rgba(4,7,13,.98));
-    box-shadow:0 28px 80px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.08);
   }
   .hero::before{
-    content:"";
+    content:none;
     position:absolute;
     inset:-2px;
     background:
@@ -173,14 +165,7 @@
     pointer-events:none;
   }
   .hero::after{
-    content:"";
-    position:absolute;
-    inset:0;
-    background:
-      linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px),
-      linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px);
-    background-size:38px 38px;
-    opacity:.16;
+    content:none;
   }
   .hero-content{position:relative;z-index:3;display:grid;grid-template-columns:1fr 1.05fr;gap:28px;align-items:center;height:100%}
   .badge{
@@ -248,33 +233,23 @@
     font-weight:700;
   }
   .pulse{width:9px;height:9px;border-radius:50%;background:#2dff82;box-shadow:0 0 14px #2dff82}
-  .hero-art{position:relative;height:430px}
-  .z-core{
+  .hero-art{position:relative;width:100%;aspect-ratio:1600/853;border-radius:28px;overflow:hidden}
+  .banner-slide{
     position:absolute;
-    left:50%;
-    top:48%;
-    transform:translate(-50%,-50%);
-    width:190px;height:190px;border-radius:42px;
-    display:grid;place-items:center;
-    font-family:'Orbitron',sans-serif;
-    font-size:96px;
-    font-weight:900;
-    color:#120900;
-    background:linear-gradient(135deg,#ffe99b,var(--gold),#ff6a00);
-    box-shadow:0 0 38px rgba(255,179,0,.62),0 0 90px rgba(138,46,255,.32),inset 0 2px 0 rgba(255,255,255,.5);
-    z-index:3;
+    inset:0;
+    opacity:0;
+    transition:opacity .7s ease;
+    pointer-events:none;
   }
-  .energy-ring{
-    position:absolute;
-    left:50%;top:48%;
-    width:305px;height:305px;
-    transform:translate(-50%,-50%);
-    border-radius:50%;
-    border:1px solid rgba(0,200,255,.3);
-    box-shadow:var(--blue-glow),inset 0 0 34px rgba(138,46,255,.22);
-    animation:spin 18s linear infinite;
+  .banner-slide.active{opacity:1;pointer-events:auto}
+  .banner-slide img{
+    width:100%;height:100%;object-fit:cover;border-radius:28px;
+    border:1px solid rgba(255,255,255,.08);
+    box-shadow:0 24px 70px rgba(0,0,0,.55);
   }
-  .energy-ring::before,.energy-ring::after{
+  .z-core{display:none}
+  .energy-ring{display:none}
+  .energy-ring::before,.energy-ring-UNUSED::after{
     content:"";
     position:absolute;
     inset:24px;
@@ -285,10 +260,10 @@
   @keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
   @keyframes spin-simple{to{transform:rotate(360deg)}}
   .fighter{
+    display:none;
     position:absolute;
     width:166px;height:248px;
     border-radius:28px;
-    display:grid;place-items:center;
     font-size:82px;
     background:linear-gradient(160deg,rgba(255,255,255,.1),rgba(255,255,255,.03));
     border:1px solid rgba(255,255,255,.13);
@@ -299,10 +274,10 @@
   .fighter.two{right:18px;top:22px;transform:rotate(6deg);box-shadow:0 0 34px rgba(138,46,255,.42),0 28px 70px rgba(0,0,0,.5)}
   .fighter.three{left:50%;bottom:4px;transform:translateX(-50%) rotate(1deg);box-shadow:0 0 34px rgba(255,179,0,.28),0 28px 70px rgba(0,0,0,.5)}
   .brand-tags{
+    display:none;
     position:absolute;
     right:0;
     bottom:0;
-    display:flex;
     gap:10px;
     z-index:5;
   }
@@ -670,31 +645,15 @@
     <main class="main">
       <!-- HERO -->
       <section class="hero">
-        <div class="hero-content">
-          <div>
-            <div class="badge">⚡ PREMIUM GAMING RECHARGE</div>
-            <h1 class="hero-title">ONLINE TOPDAN <span>MAĞAZA</span></h1>
-            <p class="hero-subtitle">Saniyədə yükləmə ilə premium oyun balansı və hesab xidməti.</p>
-            <div class="feature-list">
-              <div class="feature"><span class="feature-icon">⚡</span> Sürətli yükləmə</div>
-              <div class="feature"><span class="feature-icon">🛡</span> 100% güvənli</div>
-              <div class="feature"><span class="feature-icon">🎧</span> 7/24 dəstək</div>
-            </div>
-            <div class="cta-row">
-              <button class="cta" id="topupCta">TOPUP ET ▶</button>
-              <div class="mini-proof"><span class="pulse"></span> Canlı sistem aktivdir</div>
-            </div>
+        <div class="hero-art" id="heroArt">
+          <div class="banner-slide active" data-slide="0">
+            <img src="/banners/first_banner.jpg" alt="Banner 1" loading="eager">
           </div>
-          <div class="hero-art">
-            <div class="energy-ring"></div>
-            <div class="fighter one">🪖</div>
-            <div class="fighter two">🥷</div>
-            <div class="fighter three">🎮</div>
-            <div class="z-core">Z</div>
-            <div class="brand-tags">
-              <span class="game-tag ff">FREE FIRE</span>
-              <span class="game-tag pubg">PUBG MOBILE</span>
-            </div>
+          <div class="banner-slide" data-slide="1">
+            <img src="/banners/second_banner.jpg" alt="Banner 2" loading="lazy">
+          </div>
+          <div class="banner-slide" data-slide="2">
+            <img src="/banners/third_banner.jpg" alt="Banner 3" loading="lazy">
           </div>
         </div>
       </section>
@@ -828,11 +787,15 @@
       categoryGrid.innerHTML = cats.map(cat => {
         const slug = cat.slug || cat.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         const img = cat.image_url || 'assets/zelix-generated-logo.svg';
+        const badges = [];
+        if (cat.featured) badges.push('<span style="background:rgba(0,255,127,.12);color:#a3ffcf;border:1px solid rgba(0,255,127,.3);padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800">FEATURED</span>');
+        if (cat.popular) badges.push('<span style="background:rgba(255,179,0,.12);color:#ffd24d;border:1px solid rgba(255,179,0,.3);padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800">🔥 POPULAR</span>');
         return `
           <a href="/category/${slug}" class="category-card" data-game="${cat.name}">
             <div class="game-art"><img src="${img}" alt="${cat.name}" loading="lazy" onerror="this.src='assets/zelix-generated-logo.svg'"></div>
             <div class="game-name">${cat.name}</div>
             <div class="arrow">›</div>
+            ${badges.length ? `<div style="position:absolute;top:10px;left:10px;display:flex;gap:6px;flex-wrap:wrap;z-index:5">${badges.join('')}</div>` : ''}
           </a>
         `;
       }).join('');
@@ -843,19 +806,23 @@
   }
   loadCategories();
 
-  document.querySelector('#topupCta').addEventListener('click', () => {
+  const cta = document.querySelector('#topupCta');
+  if (cta) cta.addEventListener('click', () => {
     document.querySelector('#categories').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   const dots = document.querySelectorAll('#dots .dot');
+  const bannerSlides = document.querySelectorAll('.banner-slide');
   let active = 0;
   function setDot(i){
     dots.forEach(d=>d.classList.remove('active'));
     dots[i].classList.add('active');
+    bannerSlides.forEach(s=>s.classList.remove('active'));
+    bannerSlides[i].classList.add('active');
     active = i;
   }
   dots.forEach(d=>d.addEventListener('click',()=>setDot(Number(d.dataset.i))));
-  setInterval(()=>setDot((active+1)%dots.length),4200);
+  setInterval(()=>setDot((active+1)%dots.length),3000);
 
   const authOverlay = document.querySelector('#authOverlay');
   const authClose = document.querySelector('#authClose');
