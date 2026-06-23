@@ -104,7 +104,7 @@ function Avatar({size='h-24 w-24'}){
 }
 
 function Sidebar({profile,onAction,onLogout,onShowProducts,onShowDeposit,showProducts,showDeposit,loggingOut}){
-  return <aside className="glass flex h-fit flex-col rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] lg:sticky lg:top-24">
+  return <aside className="glass flex h-fit flex-col rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] lg:sticky lg:top-24 lg:w-80">
     <div className="flex flex-col items-center text-center">
       <Avatar/>
       <h2 className="mt-4 font-orbitron text-xl font-black">{profile.username}</h2>
@@ -251,28 +251,81 @@ function StatGrid(){
 
 function OrdersPanel(){
   const [orders,setOrders]=React.useState([]);
+  const [loading,setLoading]=React.useState(true);
   const [error,setError]=React.useState('');
-  React.useEffect(()=>{apiRequest('/api/orders').then(d=>setOrders(d.orders||[])).catch(e=>setError(e.message||'Sifarişlər yüklənmədi'))},[]);
+  const [syncedAt,setSyncedAt]=React.useState(null);
+
+  const loadOrders = React.useCallback(() => {
+    apiRequest('/api/orders')
+      .then(d => { setOrders(d.orders || []); setSyncedAt(new Date()); setError(''); })
+      .catch(e => setError(e.message || 'Sifarişlər yüklənmədi'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => {
+    loadOrders();
+    const token = localStorage.getItem('zelixToken');
+    if (!token) return;
+    const es = new EventSource('/api/stream?token=' + encodeURIComponent(token));
+    es.addEventListener('order', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        const updated = data.order;
+        if (!updated) return;
+        setOrders(prev => {
+          const idx = prev.findIndex(o => o.id === updated.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+          }
+          return [updated, ...prev];
+        });
+        setSyncedAt(new Date());
+      } catch (err) {}
+    });
+    es.addEventListener('state', () => {
+      loadOrders();
+    });
+    es.onerror = () => {};
+    return () => { es.close(); };
+  }, [loadOrders]);
+
+  const statusClass = (code) => {
+    const c = String(code || '').toLowerCase();
+    if (c === 'completed') return 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/25';
+    if (c === 'rejected') return 'bg-red-500/15 text-red-300 border border-red-400/25';
+    if (c === 'processing') return 'bg-blue-500/15 text-blue-300 border border-blue-400/25';
+    return 'bg-yellow-500/10 text-amber-300 border border-amber-400/25';
+  };
+  const statusText = (o) => o.status_label || o.status || o.status_code || 'Gözləmədə';
+  const totalAmount = (o) => Number(o.total_amount || o.price || 0).toFixed(2);
+  const itemNames = (o) => (o.items || []).map(i => `${i.title} x${i.quantity}`).join(', ');
+
   return <section className="glass rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)]">
     <div className="mb-4 flex items-center justify-between">
       <h3 className="font-orbitron text-xl font-black">Sifarişlərim</h3>
-      <span className="rounded-full border border-violet/30 bg-violet/10 px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] text-violet">Canlı</span>
+      <div className="flex items-center gap-2">
+        {syncedAt && <span className="text-[11px] text-white/40">Sinx: {syncedAt.toLocaleTimeString()}</span>}
+        <span className="rounded-full border border-violet/30 bg-violet/10 px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] text-violet">Canlı</span>
+      </div>
     </div>
+    {loading && <div className="mb-3 text-sm text-white/60">Yüklənir...</div>}
     {error && <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
     <div className="grid gap-3">
-      {orders.length===0 ? (
+      {orders.length===0 && !loading ? (
         <div className="rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-white/60">Hələ sifariş yoxdur.</div>
       ) : orders.map(o=>
         <div key={o.id} className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="font-orbitron text-lg font-black">{o.package} <span className="text-white/50">({o.game})</span></div>
-            <div className={`${String(o.status||'').toLowerCase().includes('tamam')?'bg-emerald-500/15 text-emerald-300 border border-emerald-400/25':String(o.status||'').toLowerCase().includes('gözl')?'bg-yellow-500/10 text-amber-300 border border-amber-400/25':'bg-white/5 text-white/70 border border-white/10'} rounded-full px-3 py-1 text-xs font-rajdhani font-black`}>{o.status || 'Status'}</div>
+            <div className="font-orbitron text-lg font-black">{o.game || (o.items && o.items[0] && o.items[0].game) || 'Oyun'} <span className="text-sm text-white/50">({itemNames(o) || o.package})</span></div>
+            <div className={`${statusClass(o.status_code)} rounded-full px-3 py-1 text-xs font-rajdhani font-black`}>{statusText(o)}</div>
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-white/70 sm:grid-cols-4">
-            <div>Qiymət: <span className="font-orbitron text-gold">{Number(o.price||0).toFixed(2)} ₼</span></div>
-            <div>Miqdar: <span className="font-orbitron">{o.quantity || 1}</span></div>
+            <div>Cəmi: <span className="font-orbitron text-gold">{totalAmount(o)} ₼</span></div>
+            <div>Miqdar: <span className="font-orbitron">{(o.items || []).reduce((s,i)=>s+i.quantity,0) || o.quantity || 1}</span></div>
             <div>ID: <span className="font-orbitron">{o.player_id||'—'}</span></div>
-            <div>Tarix: <span className="font-orbitron">{String(o.created_at||'').slice(0,19).replace('T',' ')}</span></div>
+            <div>Tarix: <span className="font-orbitron">{String(o.updated_at || o.created_at || '').slice(0,19).replace('T',' ')}</span></div>
           </div>
         </div>
       )}
@@ -375,7 +428,7 @@ function DepositPanel(){
 }
 
 function Footer(){
-  return <footer className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-white/10 py-6 text-sm text-white/45 md:flex-row">
+  return <footer className="mt-auto flex flex-col items-center justify-between gap-4 border-t border-white/10 py-6 text-sm text-white/45 md:flex-row">
     <div>© 2025 ZELIX TOPUP. Bütün hüquqlar qorunur.</div>
     <div className="flex gap-3"><a className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[.04] transition hover:border-blue/40 hover:text-blue" href="#">f</a><a className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[.04] transition hover:border-pink-400/40 hover:text-pink-300" href="#">◎</a><a className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[.04] transition hover:border-red-400/40 hover:text-red-300" href="#">▶</a><a className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[.04] transition hover:border-violet/40 hover:text-violet" href="#">⌁</a></div>
   </footer>
@@ -436,14 +489,14 @@ function App(){
       setLoggingOut(false);
     }
   }
-  return <main className="relative min-h-screen bg-black text-white">
+  return <main className="relative flex min-h-screen flex-col bg-black text-white">
     <div className="fixed inset-0 grid-bg opacity-20"></div>
     <div className="fixed left-[-12rem] top-[-12rem] h-[34rem] w-[34rem] rounded-full bg-violet/25 blur-3xl"></div>
     <div className="fixed bottom-[-12rem] right-[-12rem] h-[36rem] w-[36rem] rounded-full bg-gold/15 blur-3xl"></div>
     {message && <div className={`fixed right-4 top-4 z-50 rounded-2xl border px-4 py-3 text-sm font-bold shadow-lg ${message.type==='bad'?'border-red-400/40 bg-red-500/15 text-red-200':'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'}`}>{message.text}</div>}
-    <div className="relative z-10 mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[320px_1fr] lg:px-8">
+    <div className="relative z-10 mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-6 px-4 py-6 sm:px-6 lg:flex-row lg:px-8">
       <Sidebar profile={profile} onAction={action} onLogout={logout} onShowProducts={(v)=>{setShowDeposit(false);setShowProducts(v);}} onShowDeposit={()=>{setShowProducts(false);setShowDeposit(true);}} showProducts={showProducts} showDeposit={showDeposit} loggingOut={loggingOut}/>
-      <div className="space-y-6">
+      <div className="flex flex-1 flex-col space-y-6">
         {showProducts ? (
           <ProductsPanel categories={categories} selected={selected} onToggle={toggle}/>
         ) : showDeposit ? (

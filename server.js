@@ -89,7 +89,9 @@ async function adminAdjustBalance(request, response) {
   const usr = await dbFindUserById(userId);
   if (!usr) return sendJson(response, 404, { message: 'İstifadəçi tapılmadı' });
   await dbUpdateBalance(userId, amount);
-  await dbCreateTransaction(userId, Math.abs(amount), amount > 0 ? 'credit' : 'debit', 'approved', reason);
+  await dbCreateTransaction(userId, Math.abs(amount), amount > 0 ? 'credit' : 'debit', 'approved', reason, 'balance', reason);
+  await dbCreateNotification(userId, amount > 0 ? 'Balans artırıldı' : 'Balans azaldıldı', 'Hesabınız ' + Math.abs(amount).toFixed(2) + ' ₼ ' + (amount > 0 ? 'əlavə edildi' : 'azaldıldı') + '.', 'balance');
+  ssePushState(userId);
   const updated = await dbFindUserById(userId);
   sendJson(response, 200, { message: 'Balans yeniləndi', user: sanitizeUser(updated) });
 }
@@ -260,13 +262,45 @@ async function dbEnsureSchema() {
     name VARCHAR(120) NOT NULL,
     slug VARCHAR(120) NOT NULL UNIQUE,
     image_url TEXT,
+    banner_image_url TEXT,
     description TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    featured BOOLEAN NOT NULL DEFAULT false,
+    popular BOOLEAN NOT NULL DEFAULT false,
+    seo_title VARCHAR(160),
+    seo_description TEXT,
+    og_image_url TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query('ALTER TABLE categories ADD COLUMN IF NOT EXISTS banner_image_url TEXT');
+  await pool.query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'");
+  await pool.query('ALTER TABLE categories ADD COLUMN IF NOT EXISTS display_order INTEGER NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE categories ADD COLUMN IF NOT EXISTS featured BOOLEAN NOT NULL DEFAULT false');
+  await pool.query('ALTER TABLE categories ADD COLUMN IF NOT EXISTS popular BOOLEAN NOT NULL DEFAULT false');
+  await pool.query('ALTER TABLE categories ADD COLUMN IF NOT EXISTS seo_title VARCHAR(160)');
+  await pool.query('ALTER TABLE categories ADD COLUMN IF NOT EXISTS seo_description TEXT');
+  await pool.query('ALTER TABLE categories ADD COLUMN IF NOT EXISTS og_image_url TEXT');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_categories_active ON categories(is_active, status)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_categories_order ON categories(display_order, featured, popular)');
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS category_fields (
+    id VARCHAR(36) PRIMARY KEY,
+    category_id VARCHAR(36) NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    name VARCHAR(80) NOT NULL,
+    label VARCHAR(120) NOT NULL,
+    type VARCHAR(20) NOT NULL DEFAULT 'text',
+    required BOOLEAN NOT NULL DEFAULT false,
+    options JSONB DEFAULT '[]',
+    sort_order INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
-  await pool.query('CREATE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug)');
-  await pool.query('CREATE INDEX IF NOT EXISTS idx_categories_active ON categories(is_active)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_category_fields_category ON category_fields(category_id, sort_order)');
 
   await pool.query(`CREATE TABLE IF NOT EXISTS products (
     id VARCHAR(36) PRIMARY KEY,
@@ -274,12 +308,17 @@ async function dbEnsureSchema() {
     game VARCHAR(120) NOT NULL,
     title VARCHAR(160) NOT NULL,
     price DECIMAL(10,2) NOT NULL,
+    old_price DECIMAL(10,2),
+    discount_percent INTEGER NOT NULL DEFAULT 0,
+    stock_quantity INTEGER NOT NULL DEFAULT 0,
     image_url TEXT,
     description TEXT,
     available BOOLEAN NOT NULL DEFAULT true,
     is_active BOOLEAN NOT NULL DEFAULT true,
+    is_featured BOOLEAN NOT NULL DEFAULT false,
     sort_order INTEGER NOT NULL DEFAULT 0,
     delivery_minutes INTEGER NOT NULL DEFAULT 5,
+    badges JSONB DEFAULT '[]',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
@@ -288,8 +327,17 @@ async function dbEnsureSchema() {
   await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true');
   await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0');
   await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP');
+  await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS old_price DECIMAL(10,2)');
+  await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_quantity INTEGER NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT false');
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS badges JSONB DEFAULT '[]'");
   await pool.query('CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active, available)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_products_sort ON products(category_id, sort_order)');
+
+  await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS custom_fields JSONB');
+  await pool.query('ALTER TABLE order_items ADD COLUMN IF NOT EXISTS custom_fields JSONB');
 
   await pool.query(`CREATE TABLE IF NOT EXISTS order_status (
     id SERIAL PRIMARY KEY,
@@ -425,27 +473,38 @@ async function productGet(request, response, productId) {
 async function categoriesList(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const slug = (url.searchParams.get('slug') || '').trim().toLowerCase();
+  const featured = url.searchParams.get('featured') === 'true';
+  const popular = url.searchParams.get('popular') === 'true';
   let sql = 'SELECT * FROM categories';
   const params = [];
-  if (slug) { sql += ' WHERE slug = $1'; params.push(slug); }
-  else { sql += ' WHERE is_active = true'; }
-  sql += ' ORDER BY name ASC';
+  const conds = [];
+  if (slug) { conds.push('slug = $1'); params.push(slug); }
+  else { conds.push("is_active = true AND status = 'active'"); }
+  if (featured) { conds.push('featured = true'); }
+  if (popular) { conds.push('popular = true'); }
+  if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
+  sql += ' ORDER BY display_order ASC, featured DESC, popular DESC, name ASC';
   const { rows } = await pool.query(sql, params);
   sendJson(response, 200, { categories: rows });
 }
 
 async function categoryGet(request, response, slug) {
-  const { rows } = await pool.query('SELECT * FROM categories WHERE slug = $1 AND is_active = true LIMIT 1', [slug]);
+  const { rows } = await pool.query("SELECT * FROM categories WHERE slug = $1 AND is_active = true AND status = 'active' LIMIT 1", [slug]);
   if (!rows.length) return sendJson(response, 404, { message: 'Kateqoriya tapılmadı.' });
-  sendJson(response, 200, { category: rows[0] });
+  const category = rows[0];
+  const { rows: fields } = await pool.query('SELECT id, name, label, type, required, options, sort_order FROM category_fields WHERE category_id = $1 AND is_active = true ORDER BY sort_order ASC', [category.id]);
+  category.fields = fields;
+  sendJson(response, 200, { category });
 }
 
 async function categoryProducts(request, response, slug) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const q = (url.searchParams.get('q') || '').trim().toLowerCase();
-  const { rows: catRows } = await pool.query('SELECT * FROM categories WHERE slug = $1 AND is_active = true LIMIT 1', [slug]);
+  const { rows: catRows } = await pool.query("SELECT * FROM categories WHERE slug = $1 AND is_active = true AND status = 'active' LIMIT 1", [slug]);
   if (!catRows.length) return sendJson(response, 404, { message: 'Kateqoriya tapılmadı.' });
   const category = catRows[0];
+  const { rows: fields } = await pool.query('SELECT id, name, label, type, required, options, sort_order FROM category_fields WHERE category_id = $1 AND is_active = true ORDER BY sort_order ASC', [category.id]);
+  category.fields = fields;
   let sql = `SELECT p.* FROM products p WHERE p.category_id = $1 AND p.is_active = true AND p.available = true`;
   const params = [category.id];
   if (q) { sql += ' AND (LOWER(p.title) LIKE $' + (params.length + 1) + ' OR LOWER(p.game) LIKE $' + (params.length + 1) + ')'; params.push('%' + q + '%'); }
@@ -460,13 +519,16 @@ async function adminCreateProduct(request, response) {
   const id = crypto.randomUUID();
   const {
     categoryId = null, game = 'PUBG Mobile', title = 'Package', price = 1.0,
-    imageUrl = '', description = '', available = true, isActive = true,
-    deliveryMinutes = 5, sortOrder = 0
+    oldPrice = null, discountPercent = 0, stockQuantity = 0,
+    imageUrl = '', description = '', available = true, isActive = true, isFeatured = false,
+    deliveryMinutes = 5, sortOrder = 0, badges = []
   } = body;
   await pool.query(
-    `INSERT INTO products (id, category_id, game, title, price, image_url, description, available, is_active, delivery_minutes, sort_order, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())`,
-    [id, categoryId || null, String(game), String(title), Number(price), String(imageUrl), String(description), Boolean(available), Boolean(isActive), Number(deliveryMinutes), Number(sortOrder)]
+    `INSERT INTO products (id, category_id, game, title, price, old_price, discount_percent, stock_quantity, image_url, description, available, is_active, is_featured, delivery_minutes, sort_order, badges, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW())`,
+    [id, categoryId || null, String(game), String(title), Number(price), oldPrice ? Number(oldPrice) : null, Number(discountPercent), Number(stockQuantity),
+     String(imageUrl), String(description), Boolean(available), Boolean(isActive), Boolean(isFeatured),
+     Number(deliveryMinutes), Number(sortOrder), JSON.stringify(badges)]
   );
   const { rows } = await pool.query('SELECT * FROM products WHERE id=$1', [id]);
   sendJson(response, 201, { product: rows[0] });
@@ -479,22 +541,28 @@ async function adminUpdateProduct(request, response) {
   if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const map = {
-    categoryId: 'category_id', game: 'game', title: 'title', price: 'price',
+    categoryId: 'category_id', game: 'game', title: 'title', price: 'price', oldPrice: 'old_price',
+    discountPercent: 'discount_percent', stockQuantity: 'stock_quantity',
     imageUrl: 'image_url', description: 'description', available: 'available',
-    isActive: 'is_active', deliveryMinutes: 'delivery_minutes', sortOrder: 'sort_order'
+    isActive: 'is_active', isFeatured: 'is_featured', deliveryMinutes: 'delivery_minutes', sortOrder: 'sort_order'
   };
   const sets = ['updated_at = NOW()'];
   const values = [];
   for (const key in map) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       const col = map[key];
-      const val = key === 'price' ? Number(body[key])
-        : key === 'available' || key === 'isActive' ? Boolean(body[key])
-        : key === 'deliveryMinutes' || key === 'sortOrder' ? Number(body[key])
-        : String(body[key] || '');
+      let val;
+      if (['price','oldPrice'].includes(key)) val = body[key] ? Number(body[key]) : null;
+      else if (key === 'available' || key === 'isActive' || key === 'isFeatured') val = Boolean(body[key]);
+      else if (['discountPercent','stockQuantity','deliveryMinutes','sortOrder'].includes(key)) val = Number(body[key] || 0);
+      else val = String(body[key] || '');
       values.push(val);
       sets.push(`${col} = $${values.length}`);
     }
+  }
+  if (Array.isArray(body.badges)) {
+    values.push(JSON.stringify(body.badges));
+    sets.push(`badges = $${values.length}`);
   }
   if (sets.length === 1) return sendJson(response, 400, { message: 'Heç bir dəyişiklik yoxdur' });
   values.push(id);
@@ -532,12 +600,21 @@ async function adminCategoriesList(request, response) {
   const admin = await requireAdmin(request, response); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const q = (url.searchParams.get('q') || '').trim().toLowerCase();
-  let sql = 'SELECT * FROM categories';
+  let sql = `SELECT c.*,
+    (SELECT COUNT(*)::int FROM products WHERE category_id = c.id) AS product_count,
+    (SELECT COUNT(*)::int FROM orders WHERE game = c.name OR game IN (SELECT game FROM products WHERE category_id = c.id)) AS order_count,
+    (SELECT COALESCE(SUM(total_amount),0)::numeric FROM orders WHERE game = c.name OR game IN (SELECT game FROM products WHERE category_id = c.id)) AS revenue
+    FROM categories c`;
   const params = [];
-  if (q) { sql += ' WHERE LOWER(name) LIKE $1 OR LOWER(slug) LIKE $1'; params.push('%' + q + '%'); }
-  sql += ' ORDER BY created_at DESC';
+  if (q) { sql += ' WHERE LOWER(c.name) LIKE $1 OR LOWER(c.slug) LIKE $1'; params.push('%' + q + '%'); }
+  sql += ' ORDER BY c.display_order ASC, c.featured DESC, c.popular DESC, c.name ASC';
   const { rows } = await pool.query(sql, params);
-  sendJson(response, 200, { categories: rows });
+  const cats = [];
+  for (const c of rows) {
+    const { rows: fields } = await pool.query('SELECT * FROM category_fields WHERE category_id = $1 ORDER BY sort_order', [c.id]);
+    cats.push({ ...c, fields });
+  }
+  sendJson(response, 200, { categories: cats });
 }
 
 async function adminCreateCategory(request, response) {
@@ -547,17 +624,33 @@ async function adminCreateCategory(request, response) {
   if (!name) return sendJson(response, 400, { message: 'Ad tələb olunur.' });
   const slug = String(body.slug || name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const id = crypto.randomUUID();
+  const status = ['active','hidden','draft','archived'].includes(String(body.status || '').toLowerCase()) ? String(body.status).toLowerCase() : 'active';
   try {
     await pool.query(
-      'INSERT INTO categories (id, name, slug, image_url, description, is_active, updated_at) VALUES ($1,$2,$3,$4,$5,$6,NOW())',
-      [id, name, slug, String(body.imageUrl || ''), String(body.description || ''), Boolean(body.isActive !== false)]
+      `INSERT INTO categories (id, name, slug, image_url, banner_image_url, description, status, is_active, display_order, featured, popular, seo_title, seo_description, og_image_url, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())`,
+      [id, name, slug, String(body.imageUrl || ''), String(body.bannerImageUrl || ''), String(body.description || ''),
+       status, status === 'active', Number(body.displayOrder || 0), Boolean(body.featured), Boolean(body.popular),
+       String(body.seoTitle || ''), String(body.seoDescription || ''), String(body.ogImageUrl || '')]
     );
+    if (Array.isArray(body.fields)) {
+      for (let i = 0; i < body.fields.length; i++) {
+        const f = body.fields[i];
+        await pool.query(
+          `INSERT INTO category_fields (id, category_id, name, label, type, required, options, sort_order, is_active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [crypto.randomUUID(), id, String(f.name || ''), String(f.label || ''), String(f.type || 'text'), Boolean(f.required),
+           JSON.stringify(f.options || []), Number(f.sortOrder || i), f.isActive !== false]
+        );
+      }
+    }
   } catch (e) {
     if (e.code === '23505') return sendJson(response, 409, { message: 'Bu slug artıq istifadə edilir.' });
     throw e;
   }
   const { rows } = await pool.query('SELECT * FROM categories WHERE id=$1', [id]);
-  sendJson(response, 201, { category: rows[0] });
+  const { rows: fields } = await pool.query('SELECT * FROM category_fields WHERE category_id = $1 ORDER BY sort_order', [id]);
+  sendJson(response, 201, { category: { ...rows[0], fields } });
 }
 
 async function adminUpdateCategory(request, response) {
@@ -566,29 +659,52 @@ async function adminUpdateCategory(request, response) {
   const id = url.searchParams.get('id') || '';
   if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
-  const map = { name: 'name', slug: 'slug', imageUrl: 'image_url', description: 'description', isActive: 'is_active' };
+  const map = {
+    name: 'name', slug: 'slug', imageUrl: 'image_url', bannerImageUrl: 'banner_image_url', description: 'description',
+    status: 'status', isActive: 'is_active', displayOrder: 'display_order', featured: 'featured', popular: 'popular',
+    seoTitle: 'seo_title', seoDescription: 'seo_description', ogImageUrl: 'og_image_url'
+  };
   const sets = ['updated_at = NOW()'];
   const values = [];
   for (const key in map) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       const col = map[key];
-      const val = key === 'isActive' ? Boolean(body[key])
-        : key === 'slug' ? String(body[key] || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-        : String(body[key] || '');
+      let val;
+      if (key === 'isActive') val = Boolean(body[key]);
+      else if (key === 'featured' || key === 'popular') val = Boolean(body[key]);
+      else if (key === 'displayOrder') val = Number(body[key] || 0);
+      else if (key === 'status') val = ['active','hidden','draft','archived'].includes(String(body[key]).toLowerCase()) ? String(body[key]).toLowerCase() : 'active';
+      else if (key === 'slug') val = String(body[key] || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      else val = String(body[key] || '');
       values.push(val);
       sets.push(`${col} = $${values.length}`);
     }
   }
-  if (sets.length === 1) return sendJson(response, 400, { message: 'Heç bir dəyişiklik yoxdur' });
-  values.push(id);
-  try {
-    await pool.query(`UPDATE categories SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
-  } catch (e) {
-    if (e.code === '23505') return sendJson(response, 409, { message: 'Bu slug artıq istifadə edilir.' });
-    throw e;
+  if (sets.length > 1) {
+    values.push(id);
+    try {
+      await pool.query(`UPDATE categories SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
+    } catch (e) {
+      if (e.code === '23505') return sendJson(response, 409, { message: 'Bu slug artıq istifadə edilir.' });
+      throw e;
+    }
+  }
+  // Replace category fields if provided
+  if (Array.isArray(body.fields)) {
+    await pool.query('DELETE FROM category_fields WHERE category_id = $1', [id]);
+    for (let i = 0; i < body.fields.length; i++) {
+      const f = body.fields[i];
+      await pool.query(
+        `INSERT INTO category_fields (id, category_id, name, label, type, required, options, sort_order, is_active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [crypto.randomUUID(), id, String(f.name || ''), String(f.label || ''), String(f.type || 'text'), Boolean(f.required),
+         JSON.stringify(f.options || []), Number(f.sortOrder || i), f.isActive !== false]
+      );
+    }
   }
   const { rows } = await pool.query('SELECT * FROM categories WHERE id=$1', [id]);
-  sendJson(response, 200, { category: rows[0] });
+  const { rows: fields } = await pool.query('SELECT * FROM category_fields WHERE category_id = $1 ORDER BY sort_order', [id]);
+  sendJson(response, 200, { category: { ...rows[0], fields } });
 }
 
 async function adminDeleteCategory(request, response) {
@@ -596,10 +712,65 @@ async function adminDeleteCategory(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const id = url.searchParams.get('id') || '';
   if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
-  // Clear category_id on products first (or reassign to a default? safer to clear)
+  await pool.query('DELETE FROM category_fields WHERE category_id = $1', [id]);
   await pool.query('UPDATE products SET category_id = NULL WHERE category_id = $1', [id]);
   await pool.query('DELETE FROM categories WHERE id = $1', [id]);
   sendJson(response, 200, { message: 'Silindi' });
+}
+
+async function adminUploadImage(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const dataUrl = String(body.image || '');
+  const folder = String(body.folder || 'images').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!dataUrl.startsWith('data:image/')) return sendJson(response, 400, { message: 'Şəkil formatı düzgün deyil.' });
+  const match = dataUrl.match(/^data:image\/(png|jpeg|jpg|webp);base64,/i);
+  if (!match) return sendJson(response, 400, { message: 'Dəstəklənməyən şəkil formatı.' });
+  const ext = match[1].toLowerCase() === 'jpg' ? 'jpeg' : match[1].toLowerCase();
+  const base64 = dataUrl.replace(/^data:image\/[^;]+;base64,/, '');
+  const buf = Buffer.from(base64, 'base64');
+  if (buf.length > 5 * 1024 * 1024) return sendJson(response, 400, { message: 'Şəkil həcmi 5MB-dan çox olmamalıdır.' });
+  const fileName = crypto.randomUUID() + '.' + ext;
+  const uploadDir = path.join(__dirname, 'uploads', folder);
+  await fs.mkdir(uploadDir, { recursive: true });
+  const filePath = path.join(uploadDir, fileName);
+  await fs.writeFile(filePath, buf);
+  const publicUrl = '/uploads/' + folder + '/' + fileName;
+  sendJson(response, 200, { url: publicUrl, fileName });
+}
+
+async function adminDuplicateCategory(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const id = url.searchParams.get('id') || '';
+  if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
+  const { rows: srcRows } = await pool.query('SELECT * FROM categories WHERE id = $1 LIMIT 1', [id]);
+  if (!srcRows.length) return sendJson(response, 404, { message: 'Kateqoriya tapılmadı.' });
+  const src = srcRows[0];
+  const newId = crypto.randomUUID();
+  let slug = src.slug + '-copy';
+  for (let i = 2; ; i++) {
+    const { rows } = await pool.query('SELECT 1 FROM categories WHERE slug = $1 LIMIT 1', [slug]);
+    if (!rows.length) break;
+    slug = src.slug + '-copy-' + i;
+  }
+  await pool.query(
+    `INSERT INTO categories (id, name, slug, image_url, banner_image_url, description, status, is_active, display_order, featured, popular, seo_title, seo_description, og_image_url, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())`,
+    [newId, src.name + ' (Kopya)', slug, src.image_url, src.banner_image_url, src.description, 'draft', false, 0, false, false,
+     src.seo_title, src.seo_description, src.og_image_url]
+  );
+  const { rows: srcFields } = await pool.query('SELECT * FROM category_fields WHERE category_id = $1 ORDER BY sort_order', [id]);
+  for (const f of srcFields) {
+    await pool.query(
+      `INSERT INTO category_fields (id, category_id, name, label, type, required, options, sort_order, is_active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [crypto.randomUUID(), newId, f.name, f.label, f.type, f.required, JSON.stringify(f.options || []), f.sort_order, f.is_active]
+    );
+  }
+  const { rows } = await pool.query('SELECT * FROM categories WHERE id=$1', [newId]);
+  const { rows: fields } = await pool.query('SELECT * FROM category_fields WHERE category_id = $1 ORDER BY sort_order', [newId]);
+  sendJson(response, 201, { category: { ...rows[0], fields } });
 }
 
 async function createOrder(request, response) {
@@ -610,13 +781,14 @@ async function createOrder(request, response) {
   const quantity = Number(body.quantity || 1);
   const playerId = String(body.playerId || '').trim();
   const contactEmail = String(body.email || user.email).trim().toLowerCase();
+  const customFields = typeof body.customFields === 'object' && body.customFields !== null ? body.customFields : {};
   if (!productId || quantity <= 0 || !playerId) return sendJson(response, 400, { message: 'Məlumatlar tam deyil.' });
-  const result = await createOrderInternal({ user, items: [{ productId, quantity }], playerId, contactEmail });
+  const result = await createOrderInternal({ user, items: [{ productId, quantity }], playerId, contactEmail, customFields });
   if (!result.ok) return sendJson(response, result.status || 400, { message: result.message });
   sendJson(response, 201, { message: 'Sifariş yaradıldı.', order: result.order });
 }
 
-async function createOrderInternal({ user, items, playerId, contactEmail }) {
+async function createOrderInternal({ user, items, playerId, contactEmail, customFields = {} }) {
   // items: [{ productId, quantity }]
   if (!Array.isArray(items) || items.length === 0) return { ok: false, message: 'Səbət boşdur.' };
   const orderId = crypto.randomUUID();
@@ -653,14 +825,14 @@ async function createOrderInternal({ user, items, playerId, contactEmail }) {
     await client.query('UPDATE users SET balance = balance - $1 WHERE id = $2', [subtotal, user.id]);
     // Create order
     await client.query(
-      'INSERT INTO orders (id, user_id, user_email, game, package, price, player_id, status, status_id, status_code, total_amount, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())',
-      [orderId, user.id, contactEmail, orderItems[0].game, orderItems[0].title, subtotal, playerId, 'Gözləmədə', statusId, 'pending', subtotal]
+      'INSERT INTO orders (id, user_id, user_email, game, package, price, player_id, status, status_id, status_code, total_amount, custom_fields, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())',
+      [orderId, user.id, contactEmail, orderItems[0].game, orderItems[0].title, subtotal, playerId, 'Gözləmədə', statusId, 'pending', subtotal, JSON.stringify(customFields)]
     );
     // Create order items
     for (const it of orderItems) {
       await client.query(
-        'INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, total_price) VALUES ($1,$2,$3,$4,$5,$6)',
-        [crypto.randomUUID(), orderId, it.productId, it.quantity, it.unitPrice, it.totalPrice]
+        'INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, total_price, custom_fields) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [crypto.randomUUID(), orderId, it.productId, it.quantity, it.unitPrice, it.totalPrice, JSON.stringify(customFields)]
       );
     }
     // Transaction record
@@ -692,12 +864,13 @@ async function cartCheckout(request, response) {
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const playerId = String(body.playerId || '').trim();
   const contactEmail = String(body.email || user.email).trim().toLowerCase();
+  const customFields = typeof body.customFields === 'object' && body.customFields !== null ? body.customFields : {};
   if (!playerId) return sendJson(response, 400, { message: 'Oyunçu ID tələb olunur.' });
   // Load cart
   const cart = await dbCartSummary(user.id);
   if (!cart.items.length) return sendJson(response, 400, { message: 'Səbət boşdur.' });
   const items = cart.items.map(it => ({ productId: it.productId, quantity: it.quantity }));
-  const result = await createOrderInternal({ user, items, playerId, contactEmail });
+  const result = await createOrderInternal({ user, items, playerId, contactEmail, customFields });
   if (!result.ok) return sendJson(response, result.status || 400, { message: result.message });
   sendJson(response, 200, { message: 'Sifariş uğurla tamamlandı.', order: result.order });
 }
@@ -780,8 +953,10 @@ async function adminUpdateOrderStatus(request, response) {
     rejected: 'Sifarişiniz rədd edildi.'
   };
   await dbCreateNotification(order.user_id, statusMessages[newStatus] || 'Sifariş statusu yeniləndi.', `Sifariş #${orderId} statusu: ${st[0].label}.`, 'purchase');
+  const freshOrder = await orderWithItems(orderId);
+  sseSend(order.user_id, 'order', { order: freshOrder });
   ssePushState(order.user_id);
-  sendJson(response, 200, { message: 'Status yeniləndi.', orderId, status: newStatus, statusLabel: st[0].label });
+  sendJson(response, 200, { message: 'Status yeniləndi.', order: freshOrder });
 }
 
 async function adminListUsers(request, response) {
@@ -1260,6 +1435,10 @@ function signJwt(userId, remember = true) {
 function isAdmin(user) { return Boolean(user.is_admin); }
 
 async function requireAdmin(request, response) {
+  // Prefer admin-routes JWT session
+  const adminUser = await admin.getAdmin(request, pool);
+  if (adminUser) return adminUser;
+  // Fall back to user flag for compatibility
   const user = await requireUser(request, response);
   if (!user) return null;
   if (!isAdmin(user)) { sendJson(response, 403, { message: 'İcazə yoxdur' }); return null; }
@@ -1468,7 +1647,25 @@ async function ssePushState(userId) {
 }
 
 async function sseStream(request, response) {
-  const user = await requireUser(request, response); if (!user) return;
+  // EventSource cannot send Authorization headers, so accept token in query string
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const token = url.searchParams.get('token') || getAuthToken(request);
+  let userId = null;
+  if (token) {
+    try { userId = jwt.verify(token, JWT_SECRET).sub; } catch {}
+    if (!userId) userId = await dbGetSessionUserId(token);
+  }
+  if (!userId) {
+    response.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+    response.end(JSON.stringify({ message: 'Sessiya aktiv deyil.' }));
+    return;
+  }
+  const user = await dbFindUserById(userId);
+  if (!user) {
+    response.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+    response.end(JSON.stringify({ message: 'İstifadəçi tapılmadı.' }));
+    return;
+  }
   response.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -1784,8 +1981,10 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/api/admin/categories') return await adminCategoriesList(request, response);
     if (request.method === 'GET' && request.url === '/api/admin/products') return await adminProductsList(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/categories') return await adminCreateCategory(request, response);
+    if (request.method === 'POST' && request.url.startsWith('/api/admin/categories/duplicate')) return await adminDuplicateCategory(request, response);
     if (request.method === 'PUT' && request.url.startsWith('/api/admin/categories')) return await adminUpdateCategory(request, response);
     if (request.method === 'DELETE' && request.url.startsWith('/api/admin/categories')) return await adminDeleteCategory(request, response);
+    if (request.method === 'POST' && request.url === '/api/admin/upload') return await adminUploadImage(request, response);
     if (request.method === 'GET' && request.url === '/api/admin/orders') return await adminListOrders(request, response);
     if (request.method === 'PUT' && request.url === '/api/admin/orders/status') return await adminUpdateOrderStatus(request, response);
     if (request.method === 'GET' && request.url === '/api/admin/users') return await adminListUsers(request, response);
@@ -1799,7 +1998,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/api/admin/avatar/approve') return await adminApproveAvatar(request, response);
 
     // Real-time stream (Server-Sent Events)
-    if (request.method === 'GET' && request.url === '/api/stream') return await sseStream(request, response);
+    if (request.method === 'GET' && (request.url === '/api/stream' || request.url.startsWith('/api/stream?'))) return await sseStream(request, response);
 
     // Balance API
     if (request.method === 'GET' && request.url === '/api/balance') return await balanceGet(request, response);
@@ -1829,7 +2028,7 @@ const server = http.createServer(async (request, response) => {
 
     // Admin panel routes (Node.js replacement for PHP admin)
     if (request.url === '/admin/login' || request.url.startsWith('/admin/login?')) return await admin.rLogin(request, response, pool);
-    if (request.url === '/admin/logout') return await admin.rLogout(request, response);
+    if (request.url === '/admin/logout') return await admin.rLogout(request, response, pool);
     if (request.url === '/admin/' || request.url === '/admin' || request.url.startsWith('/admin/?')) return await admin.rDashboard(request, response, pool);
     if (request.url === '/admin/users' || request.url.startsWith('/admin/users?')) return await admin.rUsers(request, response, pool);
     if (request.url === '/admin/orders' || request.url.startsWith('/admin/orders?')) return await admin.rOrders(request, response, pool);

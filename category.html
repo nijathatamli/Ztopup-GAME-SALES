@@ -51,6 +51,9 @@
 
   <main class="relative z-10 mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
     <div id="categoryHeader" class="mb-6 rounded-2xl border border-white/10 bg-white/[.03] p-5 sm:p-6">
+      <div id="catBanner" class="mb-4 hidden h-40 w-full overflow-hidden rounded-xl border border-white/10 bg-black/40">
+        <img id="catBannerImg" src="" alt="" class="h-full w-full object-cover">
+      </div>
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div class="font-rajdhani text-xs font-black tracking-[.2em] text-white/50 uppercase">Kateqoriya</div>
@@ -79,6 +82,16 @@
     </div>
   </main>
 
+  <dialog id="checkoutModal" class="rounded-2xl border border-white/10 bg-[#0b0b12] p-6 text-white shadow-2xl backdrop:bg-black/70" style="max-width:420px;width:92vw">
+    <h3 class="font-orbitron text-lg font-black text-gold">Sifariş təsdiqi</h3>
+    <div id="checkoutProduct" class="mt-3 text-sm text-white/70"></div>
+    <div id="checkoutFields" class="mt-4 flex flex-col gap-3"></div>
+    <div class="mt-4 flex justify-end gap-3">
+      <button onclick="document.getElementById('checkoutModal').close()" class="rounded-xl border border-white/10 px-4 py-2 text-sm font-bold text-white/70 hover:bg-white/5">Bağla</button>
+      <button id="checkoutConfirm" class="rounded-xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-4 py-2 text-sm font-black text-black shadow-[0_0_18px_rgba(255,179,0,.35)]">Təsdiqlə</button>
+    </div>
+  </dialog>
+
   <div id="toast" class="fixed bottom-5 right-5 z-50 translate-y-20 transform rounded-2xl border border-gold/40 bg-black/90 px-4 py-3 text-sm font-bold text-gold opacity-0 shadow-gold transition-all"></div>
 
 <script>
@@ -104,20 +117,45 @@ function showToast(msg, type='good'){
 }
 
 let products = [];
+let categoryData = null;
 
 async function loadCategory(){
   try {
     const data = await api('/api/category/' + slug + '/products');
-    const category = data.category;
+    categoryData = data.category || {};
     products = data.products || [];
-    document.getElementById('catTitle').textContent = category.name;
-    document.getElementById('catDesc').textContent = category.description || '';
+    document.getElementById('catTitle').textContent = categoryData.name;
+    document.getElementById('catDesc').textContent = categoryData.description || '';
     document.getElementById('catMeta').textContent = products.length + ' məhsul';
-    render(products, category.image_url);
+    if (categoryData.banner_image_url) {
+      document.getElementById('catBanner').classList.remove('hidden');
+      document.getElementById('catBannerImg').src = categoryData.banner_image_url;
+    }
+    render(products, categoryData.image_url);
   } catch (err) {
     document.getElementById('catTitle').textContent = 'Kateqoriya tapılmadı';
     document.getElementById('grid').innerHTML = '<div class="col-span-full text-center text-white/60 py-12">' + err.message + '</div>';
   }
+}
+
+function productBadges(p){
+  const badges = [];
+  if (Array.isArray(p.badges)) {
+    p.badges.forEach(b => badges.push(`<span class="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-[11px] font-black text-white/80">${b}</span>`));
+  }
+  if (p.is_featured) badges.push('<span class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-black text-emerald-300">FEATURED</span>');
+  if (Number(p.discount_percent) > 0) badges.push(`<span class="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] font-black text-red-300">-${p.discount_percent}%</span>`);
+  if (Number(p.stock_quantity) > 0) badges.push(`<span class="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-[11px] font-black text-white/70">Stok: ${p.stock_quantity}</span>`);
+  return badges.length ? `<div class="mb-2 flex flex-wrap gap-1">${badges.join('')}</div>` : '';
+}
+
+function priceBlock(p){
+  const old = Number(p.old_price || 0);
+  const price = Number(p.price || 0);
+  if (old > price) {
+    return `<div class="font-orbitron text-xl font-black text-gold">${price.toFixed(2)} ₼</div><div class="text-xs text-white/40 line-through">${old.toFixed(2)} ₼</div>`;
+  }
+  return `<div class="font-orbitron text-xl font-black text-gold">${price.toFixed(2)} ₼</div>`;
 }
 
 function render(list, catImage){
@@ -133,25 +171,27 @@ function render(list, catImage){
     const img = p.image_url || catImage || '/assets/zelix-generated-logo.svg';
     return `
       <div class="rounded-2xl border border-white/10 bg-white/[.03] p-4 transition hover:border-gold/30">
+        ${productBadges(p)}
         <div class="flex items-center gap-3">
           <img src="${img}" alt="${p.title}" class="h-12 w-12 rounded-xl border border-white/10 bg-white/[.06] p-1 object-cover" onerror="this.src='/assets/zelix-generated-logo.svg'">
           <div class="font-orbitron text-lg font-black">${p.title}</div>
         </div>
         <div class="mt-3 flex items-center justify-between">
           <div class="font-rajdhani text-sm font-black text-white/70">Qiymət</div>
-          <div class="font-orbitron text-xl font-black text-gold">${Number(p.price).toFixed(2)} ₼</div>
+          ${priceBlock(p)}
         </div>
         <div class="mt-3 flex items-center justify-between">
           <div class="font-rajdhani text-sm font-black text-white/70">Mövcudluq</div>
           <div class="font-orbitron text-sm font-black ${p.available?'text-emerald-300':'text-red-300'}">${p.available?'Stokda':'Yoxdur'}</div>
         </div>
-        <div class="mt-4 flex items-center justify-between">
+        <div class="mt-4 flex items-center justify-between gap-2">
           <div class="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-2 py-1">
             <button class="qty-dec px-2 text-white/70 hover:text-white" data-pid="${p.id}">-</button>
             <span class="qty font-orbitron" data-pid="${p.id}">1</span>
             <button class="qty-inc px-2 text-white/70 hover:text-white" data-pid="${p.id}">+</button>
           </div>
-          <button class="add-cart rounded-xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-3 py-2 font-rajdhani text-xs font-black text-black shadow-[0_0_18px_rgba(255,179,0,.35)] transition hover:-translate-y-0.5" data-pid="${p.id}">Səbətə Əlavə Et</button>
+          <button class="buy-now rounded-xl border border-gold/40 bg-gold/10 px-3 py-2 font-rajdhani text-xs font-black text-gold hover:bg-gold/20" data-pid="${p.id}">İndi al</button>
+          <button class="add-cart rounded-xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-3 py-2 font-rajdhani text-xs font-black text-black shadow-[0_0_18px_rgba(255,179,0,.35)] transition hover:-translate-y-0.5" data-pid="${p.id}">Səbətə</button>
         </div>
       </div>
     `;
@@ -175,6 +215,52 @@ function render(list, catImage){
       showToast(err.message, 'bad');
     }
   }));
+  document.querySelectorAll('.buy-now').forEach(b => b.addEventListener('click', () => openCheckout(b.dataset.pid)));
+}
+
+function openCheckout(pid){
+  const p = products.find(x => x.id === pid);
+  if (!p) return;
+  document.getElementById('checkoutProduct').innerHTML = `<strong class="text-white">${p.title}</strong> — ${Number(p.price).toFixed(2)} ₼`;
+  const fields = categoryData?.fields || [];
+  const html = fields.map(f => {
+    const required = f.required ? 'required' : '';
+    const label = f.label || f.name;
+    if (f.type === 'dropdown') {
+      const options = (f.options || []).map(o => `<option value="${o}">${o}</option>`).join('');
+      return `<label class="flex flex-col gap-1 text-sm text-white/70"><span>${label}${f.required?' *':''}</span><select class="cf-field rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-white outline-none focus:border-gold" data-name="${f.name}" ${required}>${options}</select></label>`;
+    }
+    if (f.type === 'checkbox') {
+      return `<label class="flex items-center gap-2 text-sm text-white/70"><input type="checkbox" class="cf-field" data-name="${f.name}" ${required}> ${label}</label>`;
+    }
+    const inputType = f.type === 'number' ? 'number' : 'text';
+    return `<label class="flex flex-col gap-1 text-sm text-white/70"><span>${label}${f.required?' *':''}</span><input type="${inputType}" class="cf-field rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-white outline-none focus:border-gold" data-name="${f.name}" placeholder="${label}" ${required}></label>`;
+  }).join('');
+  // Player ID is always required
+  const playerField = `<label class="flex flex-col gap-1 text-sm text-white/70"><span>Oyunçu ID *</span><input id="checkoutPlayerId" type="text" class="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-white outline-none focus:border-gold" placeholder="Oyunçu ID" required></label>`;
+  document.getElementById('checkoutFields').innerHTML = playerField + (html ? '<div class="text-xs font-bold text-white/40 mt-1">Xüsusi sahələr</div>' + html : '');
+  document.getElementById('checkoutModal').showModal();
+  const confirmBtn = document.getElementById('checkoutConfirm');
+  confirmBtn.onclick = async () => {
+    const playerId = document.getElementById('checkoutPlayerId').value.trim();
+    if (!playerId) return showToast('Oyunçu ID daxil edin', 'bad');
+    const customFields = {};
+    let valid = true;
+    document.querySelectorAll('.cf-field').forEach(el => {
+      const name = el.dataset.name;
+      if (el.type === 'checkbox') customFields[name] = el.checked;
+      else customFields[name] = el.value.trim();
+      if (el.required && !customFields[name]) valid = false;
+    });
+    if (!valid) return showToast('Bütün tələb olunan sahələri doldurun', 'bad');
+    try {
+      await api('/api/orders', { method: 'POST', body: JSON.stringify({ productId: pid, quantity: Number(document.querySelector(`.qty[data-pid="${pid}"]`).textContent) || 1, playerId, customFields }) });
+      document.getElementById('checkoutModal').close();
+      showToast('Sifariş yaradıldı');
+    } catch (err) {
+      showToast(err.message, 'bad');
+    }
+  };
 }
 
 document.getElementById('searchInput').addEventListener('input', (e) => {
