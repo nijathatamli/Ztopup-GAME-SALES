@@ -58,6 +58,8 @@ function page(title, navHtml, content, flash) {
   const fh = flash ? `<div class="card ${flash.type==='bad'?'flash-bad':'flash-ok'}">${esc(flash.msg)}</div>` : '';
   return `<!doctype html><html lang="az"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${esc(title)} • ZTOPUP Admin</title>
+<link rel="icon" type="image/svg+xml" href="/assets/zelix-generated-logo.svg">
+<link rel="alternate icon" href="/assets/zelix-logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
 <style>${STYLE}</style></head><body>
