@@ -8,6 +8,8 @@ const ADMIN_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const ADMIN_SESSION_MAX_AGE_SECONDS = ADMIN_SESSION_MAX_AGE_MS / 1000;
 let ssePushState = () => {}; // injected by server.js
 function setSsePush(fn){ ssePushState = fn; }
+let recalcMembership = () => {}; // injected by server.js
+function setMembershipRecalc(fn){ recalcMembership = fn; }
 
 const STYLE = `body{margin:0;background:#0b0b12;color:#fff;font-family:Rajdhani,system-ui}
 header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)}
@@ -191,7 +193,7 @@ async function rDashboard(req,res,pool){const a=await requireAdmin(req,res,pool)
 async function rDeposits(req,res,pool){
   const a=await requireAdmin(req,res,pool);if(!a)return;
   let flash=null;const url=new URL(req.url,`http://${req.headers.host}`);
-  if(req.method==='POST'){const body=await readBody(req);const c=parseCookies(req);if(!body.csrf||body.csrf!==c.admin_csrf)return sendHtml(res,419,'<h1>Etibarsız CSRF tokeni.</h1>');const id=String(body.id||''),action=String(body.action||''),note=String(body.note||'').trim();if(id&&(action==='approve'||action==='reject')){try{await pool.query('BEGIN');const r=await pool.query('SELECT*FROM deposit_requests WHERE id=$1 LIMIT 1 FOR UPDATE',[id]);const row=r.rows[0];if(!row)throw new Error('Sorğu tapılmadı');if(String(row.status).toLowerCase()!=='pending')throw new Error('Bu sorğu artıq emal edilib');if(action==='approve'){const amt=parseFloat(body.amount||0);if(!isFinite(amt)||amt<=0)throw new Error('Düzgün məbləğ daxil edin');await pool.query('UPDATE users SET balance=balance+$1 WHERE id=$2',[amt,row.user_id]);await pool.query("UPDATE deposit_requests SET status='approved',approved_at=NOW(),admin_note=$1 WHERE id=$2",[note||null,id]);const tid=crypto.randomBytes(16).toString('hex');await pool.query('INSERT INTO transactions(id,user_id,amount,type,status,ref)VALUES($1,$2,$3,$4,$5,$6)',[tid,row.user_id,amt,'credit','approved','Deposit approved by admin (request '+row.id+')']);await createNotification(pool,row.user_id,'Balans artırıldı','Hesabınıza '+amt.toFixed(2)+' ₼ əlavə olundu.','balance');ssePushState(row.user_id);flash={type:'ok',msg:'Depozit təsdiqləndi və '+amt.toFixed(2)+' ₼ balansa əlavə olundu'};}else{await pool.query("UPDATE deposit_requests SET status='rejected',approved_at=NOW(),admin_note=$1 WHERE id=$2",[note||null,id]);flash={type:'ok',msg:'Depozit sorğusu rədd edildi'};}await pool.query('COMMIT');}catch(e){await pool.query('ROLLBACK').catch(()=>{});flash={type:'bad',msg:'Xəta: '+e.message};}}}
+  if(req.method==='POST'){const body=await readBody(req);const c=parseCookies(req);if(!body.csrf||body.csrf!==c.admin_csrf)return sendHtml(res,419,'<h1>Etibarsız CSRF tokeni.</h1>');const id=String(body.id||''),action=String(body.action||''),note=String(body.note||'').trim();if(id&&(action==='approve'||action==='reject')){try{await pool.query('BEGIN');const r=await pool.query('SELECT*FROM deposit_requests WHERE id=$1 LIMIT 1 FOR UPDATE',[id]);const row=r.rows[0];if(!row)throw new Error('Sorğu tapılmadı');if(String(row.status).toLowerCase()!=='pending')throw new Error('Bu sorğu artıq emal edilib');if(action==='approve'){const amt=parseFloat(body.amount||0);if(!isFinite(amt)||amt<=0)throw new Error('Düzgün məbləğ daxil edin');await pool.query('UPDATE users SET balance=balance+$1 WHERE id=$2',[amt,row.user_id]);await pool.query("UPDATE deposit_requests SET status='approved',approved_at=NOW(),admin_note=$1 WHERE id=$2",[note||null,id]);const tid=crypto.randomBytes(16).toString('hex');await pool.query('INSERT INTO transactions(id,user_id,amount,type,status,ref)VALUES($1,$2,$3,$4,$5,$6)',[tid,row.user_id,amt,'credit','approved','Deposit approved by admin (request '+row.id+')']);await createNotification(pool,row.user_id,'Balans artırıldı','Hesabınıza '+amt.toFixed(2)+' ₼ əlavə olundu.','balance');ssePushState(row.user_id);recalcMembership(row.user_id);flash={type:'ok',msg:'Depozit təsdiqləndi və '+amt.toFixed(2)+' ₼ balansa əlavə olundu'};}else{await pool.query("UPDATE deposit_requests SET status='rejected',approved_at=NOW(),admin_note=$1 WHERE id=$2",[note||null,id]);flash={type:'ok',msg:'Depozit sorğusu rədd edildi'};}await pool.query('COMMIT');}catch(e){await pool.query('ROLLBACK').catch(()=>{});flash={type:'bad',msg:'Xəta: '+e.message};}}}
   const status=url.searchParams.get('status')||'pending';let sql='SELECT d.*,u.username,u.email FROM deposit_requests d LEFT JOIN users u ON u.id=d.user_id',params=[];if(status){sql+=' WHERE LOWER(d.status)=LOWER($1)';params.push(status);}sql+=' ORDER BY d.created_at DESC LIMIT 300';const{rows}=await pool.query(sql,params);
   const cs=csrfToken();setCookie(res,'admin_csrf',cs,3600);
   let tr='';if(!rows.length)tr=`<tr><td colspan="9" style="color:#9a9aa6">Sorğu yoxdur.</td></tr>`;
@@ -498,6 +500,7 @@ async function rReceipt(req,res,pool){
 module.exports = {
   ensureAdminSchema,
   setSsePush,
+  setMembershipRecalc,
   rLogin,
   rLogout,
   rDashboard,

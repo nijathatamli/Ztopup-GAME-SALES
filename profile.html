@@ -25,22 +25,9 @@
   tailwind.config = {
     theme: {
       extend: {
-        fontFamily: {
-          inter: ['Inter', 'sans-serif'],
-          orbitron: ['Orbitron', 'sans-serif'],
-          rajdhani: ['Rajdhani', 'sans-serif']
-        },
-        colors: {
-          gold: '#ffb300',
-          violet: '#8a2eff',
-          blue: '#00c8ff',
-          ink: '#07070a'
-        },
-        boxShadow: {
-          gold: '0 0 22px rgba(255,179,0,.42)',
-          violet: '0 0 24px rgba(138,46,255,.38)',
-          blue: '0 0 22px rgba(0,200,255,.3)'
-        }
+        fontFamily: { inter: ['Inter', 'sans-serif'], orbitron: ['Orbitron', 'sans-serif'], rajdhani: ['Rajdhani', 'sans-serif'] },
+        colors: { gold: '#ffb300', violet: '#8a2eff', blue: '#00c8ff', ink: '#07070a' },
+        boxShadow: { gold: '0 0 22px rgba(255,179,0,.42)', violet: '0 0 24px rgba(138,46,255,.38)', blue: '0 0 22px rgba(0,200,255,.3)' }
       }
     }
   }
@@ -54,42 +41,76 @@
   .grid-bg{background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:44px 44px}
   .glass{background:linear-gradient(180deg,rgba(16,16,24,.84),rgba(7,7,10,.78));border:1px solid rgba(255,255,255,.09);backdrop-filter:blur(18px)}
   .gold-text{background:linear-gradient(90deg,#fde68a,#ffb300,#fb923c);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sidebar-link{position:relative;display:flex;align-items:center;gap:.75rem;border-radius:1.25rem;padding:.85rem 1.1rem;font-family:Rajdhani,sans-serif;font-size:.9rem;font-weight:800;letter-spacing:.06em;color:rgba(255,255,255,.58);transition:all .2s ease}
+  .sidebar-link:hover{background:rgba(255,255,255,.05);color:#fff}
+  .sidebar-link.active{background:linear-gradient(135deg,rgba(255,179,0,.18),rgba(138,46,255,.18));color:#fff;border:1px solid rgba(255,179,0,.25);box-shadow:0 0 18px rgba(255,179,0,.18)}
+  .sidebar-link.active::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:4px;height:28px;border-radius:0 999px 999px 0;background:#ffb300}
+  .card-hover{transition:all .25s ease}
+  .card-hover:hover{transform:translateY(-4px);border-color:rgba(255,179,0,.35);box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 24px rgba(255,179,0,.12)}
+  .copy-hint{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;transition:all .3s ease;z-index:60}
+  .copy-hint.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
 <link rel="stylesheet" href="/responsive.css">
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const navItems = [
-  ['⌂','ƏSAS SƏHİFƏ','/'], ['👤','PROFİL','#'], ['▣','MƏHSULLAR','#'], ['🛒','SİFARİŞLƏRİM','#'], ['↯','ƏMƏLİYYATLAR','#'], ['♡','SEVDİKLƏRİM','#'], ['🛡','TƏHLÜKƏSİZLİK','#'], ['🎧','DƏSTƏK','#'], ['⚙','PARAMETRLƏR','#']
-];
-const stats = [
-  ['📅','45 GÜN','Fəal üzvlük','from-violet to-purple-500'],
-  ['🛍','28 SİFARİŞ','Tamamlanıb','from-blue to-cyan-500'],
-  ['💎','1,250 ZELIX','Balans','from-amber-400 to-orange-500'],
-  ['🛡','100% TƏHLÜKƏSİZ','Hesab qoruması','from-emerald-400 to-green-500']
-];
-const fields = [
-  ['✨','Ad','Elvin','text'], ['⚡','Soyad','Əliyev','text'], ['📱','Nömrə','+994 50 123 45 67','tel'], ['✉️','Email','elvin.aliyev@example.com','email'], ['🎮','İstifadəçi adı','ZelixPlayer','text'], ['🔒','Şifrə','••••••••','password'], ['🛡','Şifrəni təkrarla','••••••••','password']
-];
+const formatMoney = (n, currency='₼') => Number(n || 0).toFixed(2) + ' ' + currency;
+const formatDate = (d) => {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return String(d).slice(0, 19).replace('T', ' ');
+  return dt.toLocaleString('az-AZ', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
+const formatDateShort = (d) => {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return String(d).slice(0, 10);
+  return dt.toLocaleDateString('az-AZ', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+function copyText(text) { return navigator.clipboard.writeText(text); }
 
 async function apiRequest(url, options = {}) {
   const token = localStorage.getItem('zelixToken');
   const response = await fetch(url, {
     ...options,
-    credentials: 'same-origin', // send the HttpOnly auth cookie
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {})
-    }
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) }
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.message || 'Sorğu uğursuz oldu.');
   return data;
 }
 
-function Logo(){
+const sidebarItems = [
+  ['dashboard', '⌂', 'Əsas panel'],
+  ['orders', '🛒', 'Sifarişlərim'],
+  ['deposit', '💳', 'Balans yüklə'],
+  ['transactions', '↯', 'Əməliyyatlar'],
+  ['coupons', '🏷', 'Kuponlarım'],
+  ['statistics', '📊', 'Statistika'],
+  ['settings', '⚙', 'Tənzimləmələr'],
+  ['membership', '👑', 'Üzvlük'],
+  ['messages', '✉', 'Bildirişlər']
+];
+
+const statusBadgeClasses = {
+  pending: 'bg-yellow-500/10 text-amber-300 border border-amber-400/25',
+  processing: 'bg-blue-500/15 text-blue-300 border border-blue-400/25',
+  completed: 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/25',
+  rejected: 'bg-red-500/15 text-red-300 border border-red-400/25',
+  approved: 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/25'
+};
+function statusClass(code) { return statusBadgeClasses[String(code || '').toLowerCase()] || statusBadgeClasses.pending; }
+function statusLabel(code) {
+  const c = String(code || '').toLowerCase();
+  if (c === 'completed' || c === 'approved') return 'Tamamlandı';
+  if (c === 'rejected') return 'Rədd edildi';
+  if (c === 'processing') return 'Emal edilir';
+  return 'Gözləmədə';
+}
+
+function Logo() {
   return <a href="/" className="flex items-center gap-3">
     <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-200 via-gold to-orange-500 shadow-gold">
       <img className="h-[145%] w-[145%] object-cover drop-shadow-[0_0_10px_rgba(255,179,0,.55)]" src="assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"/>
@@ -98,430 +119,561 @@ function Logo(){
       <div className="font-orbitron text-lg font-black tracking-[.18em] text-gold sm:text-xl">ZELIX TOPUP</div>
       <div className="font-rajdhani text-[10px] font-bold tracking-[.32em] text-white/40">PREMIUM GAMING MARKET</div>
     </div>
-  </a>
+  </a>;
 }
 
-function Avatar({size='h-24 w-24'}){
-  return <div className={`${size} grid place-items-center overflow-hidden rounded-full border-2 border-violet bg-black shadow-violet`}>
+function Avatar({ size = 'h-24 w-24', ring = 'border-violet' }) {
+  return <div className={`${size} grid place-items-center overflow-hidden rounded-full border-2 ${ring} bg-black shadow-violet`}>
     <img className="h-[150%] w-[150%] object-cover" src="assets/zelix-generated-logo.svg" alt="Zelix avatar"/>
-  </div>
+  </div>;
 }
 
-function Sidebar({profile,onAction,onLogout,onShowProducts,onShowDeposit,showProducts,showDeposit,loggingOut}){
-  return <aside className="glass flex h-fit flex-col rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] lg:sticky lg:top-24 lg:w-80">
-    <div className="flex flex-col items-center text-center">
-      <Avatar/>
-      <h2 className="mt-4 font-orbitron text-xl font-black">{profile.username}</h2>
-      <span className="mt-2 rounded-full border border-violet/40 bg-violet/15 px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] text-violet shadow-violet">VIP ÜZV</span>
-    </div>
-    <div className="mt-6 grid gap-3">
-      <Metric icon="💎" value={Number(profile.zelixBalance || 0).toLocaleString('en-US')} label="ZELIX BALANS"/>
-      <Metric icon="⚡" value={Number(profile.mapBalance || 0).toLocaleString('en-US')} label="XƏRİTƏ BALANS"/>
-    </div>
-    <button onClick={()=>onAction('/api/topup',{amount:100})} className="mt-5 rounded-2xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-5 py-4 font-orbitron text-sm font-black tracking-[.14em] text-black shadow-gold transition hover:-translate-y-1">TOPUP ET</button>
-    <button onClick={onShowDeposit} className={`mt-3 rounded-2xl border px-5 py-4 font-orbitron text-sm font-black tracking-[.14em] shadow-gold transition hover:-translate-y-1 ${showDeposit?'border-gold bg-gold text-black':'border-gold/40 bg-gold/10 text-gold hover:bg-gold hover:text-black'}`}>BALANS YÜKLƏ</button>
-    <nav className="mt-6 space-y-2">
-      {navItems.map(item => <a key={item[1]} href={item[2]}
-        onClick={
-          item[1]==='SEVDİKLƏRİM' ? (e=>{e.preventDefault();onAction('/api/favorites/toggle',{})}) :
-          item[1]==='MƏHSULLAR' ? (e=>{e.preventDefault();onShowProducts(true);}) :
-          item[1]==='PROFİL' ? (e=>{e.preventDefault();onShowProducts(false);}) :
-          undefined
-        }
-        className={`flex items-center gap-3 rounded-2xl px-4 py-3 font-rajdhani text-sm font-black tracking-[.08em] transition ${(item[1]==='PROFİL' && !showProducts && !showDeposit) || (item[1]==='MƏHSULLAR' && showProducts)?'bg-violet/18 text-white shadow-violet ring-1 ring-violet/25':'text-white/58 hover:bg-white/5 hover:text-white'}`}><span className="text-lg">{item[0]}</span>{item[1]}</a>)}
-      <a href="#" onClick={e=>{e.preventDefault();if(!loggingOut)onLogout();}} className={`flex items-center gap-3 rounded-2xl px-4 py-3 font-rajdhani text-sm font-black tracking-[.08em] transition ${loggingOut?'opacity-70 cursor-wait':'text-red-300 hover:bg-red-500/10 hover:text-red-200'}`}><span className="text-lg">{loggingOut?'⏳':'⏻'}</span>{loggingOut?'ÇIXILIR...':'ÇIXIŞ'}</a>
-    </nav>
-    <div className="relative mt-6 overflow-hidden rounded-3xl border border-gold/20 bg-[radial-gradient(circle_at_20%_10%,rgba(255,179,0,.25),transparent_34%),linear-gradient(135deg,rgba(138,46,255,.28),rgba(0,0,0,.9))] p-5">
-      <div className="absolute -right-7 bottom-0 text-7xl opacity-25">🎮</div>
-      <div className="relative z-10 font-orbitron text-lg font-black leading-tight text-gold">GÜCLÜ HESAB TƏHLÜKƏSİZ GƏLƏCƏK!</div>
-      <button onClick={()=>onAction('/api/support',{})} className="relative z-10 mt-4 rounded-xl border border-gold/35 bg-black/40 px-4 py-2 font-rajdhani text-xs font-black text-gold transition hover:bg-gold hover:text-black">ƏTRAFLI</button>
-    </div>
-  </aside>
+function useSSE() {
+  const [connected, setConnected] = React.useState(false);
+  const [tick, setTick] = React.useState(0);
+  React.useEffect(() => {
+    const token = localStorage.getItem('zelixToken');
+    if (!token) return;
+    const es = new EventSource('/api/stream?token=' + encodeURIComponent(token));
+    es.onopen = () => setConnected(true);
+    es.onerror = () => setConnected(false);
+    es.addEventListener('state', () => setTick(t => t + 1));
+    es.addEventListener('order', () => setTick(t => t + 1));
+    es.addEventListener('notification', () => setTick(t => t + 1));
+    return () => es.close();
+  }, []);
+  return { connected, tick };
 }
 
-function Metric({icon,value,label}){
-  return <div className="rounded-2xl border border-white/10 bg-white/[.045] p-4 transition hover:border-gold/30 hover:shadow-gold">
-    <div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-gold/10 text-xl">{icon}</div><div><div className="font-orbitron text-lg font-black text-gold">{value}</div><div className="font-rajdhani text-xs font-black tracking-[.16em] text-white/45">{label}</div></div></div>
-  </div>
+function useFetch(url, deps = []) {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState('');
+  const load = React.useCallback(() => {
+    setLoading(true);
+    apiRequest(url).then(d => { setData(d); setError(''); })
+      .catch(e => setError(e.message || 'Məlumatlar yüklənmədi'))
+      .finally(() => setLoading(false));
+  }, [url]);
+  React.useEffect(() => { load(); }, [load]);
+  return { data, loading, error, reload: load };
 }
 
-function Hero(){
-  return <section className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_78%_34%,rgba(255,179,0,.28),transparent_30%),radial-gradient(circle_at_18%_18%,rgba(138,46,255,.35),transparent_32%),linear-gradient(135deg,#101018,#000)] p-6 shadow-[0_28px_90px_rgba(0,0,0,.55)] sm:p-8">
-    <div className="absolute inset-0 grid-bg opacity-25"></div>
-    <div className="absolute right-4 top-0 font-orbitron text-[11rem] font-black leading-none text-white/[.035] sm:text-[16rem]">Z</div>
-    <div className="absolute bottom-4 right-8 hidden text-8xl opacity-20 lg:block">🪖</div>
-    <div className="relative z-10 flex min-h-[210px] flex-col justify-end">
-      <div className="mb-4 inline-flex w-fit rounded-full border border-gold/25 bg-gold/10 px-4 py-2 font-rajdhani text-xs font-black tracking-[.2em] text-gold shadow-gold">Əsas səhifə &gt; Profil</div>
-      <h1 className="font-orbitron text-5xl font-black text-white sm:text-7xl"><span className="gold-text">PROFİL</span></h1>
-    </div>
-  </section>
-}
-
-function Overview({profile}){
-  const percent = Math.min(100, Math.round((profile.xp / profile.nextXp) * 100));
-  return <section className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
-    <div className="glass rounded-[2rem] p-6 shadow-[0_22px_70px_rgba(0,0,0,.42)]">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-        <Avatar size="h-28 w-28"/>
-        <div>
-          <div className="flex flex-wrap items-center gap-3"><h2 className="font-orbitron text-3xl font-black">{profile.username}</h2><span className="rounded-full border border-violet/40 bg-violet/15 px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] text-violet">VIP ÜZV</span></div>
-          <div className="mt-2 font-rajdhani text-sm font-black tracking-[.18em] text-gold">ID: {profile.memberId}</div>
-          <p className="mt-3 text-white/60">{profile.title}</p>
-          <p className="mt-2 text-sm text-white/42">Qoşulma tarixi: {profile.joinedAt}</p>
-        </div>
-      </div>
-    </div>
-    <div className="glass rounded-[2rem] p-6 shadow-[0_22px_70px_rgba(0,0,0,.42)]">
-      <div className="flex items-center justify-between gap-4"><h3 className="font-orbitron text-2xl font-black text-gold">SƏVİYYƏ</h3><div className="grid h-20 w-20 place-items-center rounded-3xl border border-violet/40 bg-violet/20 font-orbitron text-4xl font-black text-white shadow-violet">{profile.level}</div></div>
-      <div className="mt-7 flex items-center justify-between font-rajdhani text-sm font-black tracking-[.12em] text-white/55"><span>{Number(profile.xp).toLocaleString('en-US')} / {Number(profile.nextXp).toLocaleString('en-US')} XP</span><span>{percent}%</span></div>
-      <div className="mt-3 h-4 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-gradient-to-r from-violet via-purple-500 to-gold shadow-violet" style={{width:`${percent}%`}}></div></div>
-    </div>
-  </section>
-}
-
-function Tabs(){
-  return <div className="glass overflow-x-auto rounded-3xl p-2">
-    <div className="flex min-w-max gap-2">
-      {['ŞƏXSİ MƏLUMATLAR','TƏHLÜKƏSİZLİK','ÜNVANLAR','BİLDİRİŞLƏR'].map((tab,i)=><button key={tab} className={`rounded-2xl px-5 py-3 font-rajdhani text-sm font-black tracking-[.12em] transition ${i===0?'bg-gold/10 text-gold shadow-gold ring-1 ring-gold/25':'text-white/52 hover:bg-white/5 hover:text-white'}`}>{tab}</button>)}
-    </div>
-  </div>
-}
-
-function ProductsPanel({categories,selected,onToggle}){
-  return <section className="glass rounded-[2rem] p-6 shadow-[0_22px_70px_rgba(0,0,0,.42)]">
-    <h2 className="font-orbitron text-2xl font-black text-gold">Məhsullar</h2>
-    <p className="mt-2 text-sm text-white/55">Kateqoriyaları seçin.</p>
-    <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      {categories.map(cat => (
-        <button key={cat.id||cat.name} onClick={()=>onToggle(cat.name)} className={`relative overflow-hidden rounded-2xl border p-0 text-left transition ${selected.includes(cat.name)?'border-gold/50 shadow-gold ring-1 ring-gold/25':'border-white/10 hover:border-gold/25 hover:shadow-gold'}`}>
-          <div className="absolute inset-0 opacity-80" style={{background:'radial-gradient(circle at 50% 32%, rgba(255,179,0,.18), transparent 48%)'}}></div>
-          <div className="relative z-10 grid h-40 place-items-center bg-[#0e0e16]">
-            <img src={cat.image_url||'/assets/zelix-generated-logo.svg'} alt={cat.name} className="max-h-24 w-auto object-contain" loading="lazy" onError={e=>{e.target.src='/assets/zelix-generated-logo.svg';}}/>
-          </div>
-          <div className="relative z-10 flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
-            <div className="font-rajdhani text-sm font-black tracking-[.08em]">{cat.name}</div>
-            <div className={`grid h-7 w-7 place-items-center rounded-full text-black ${selected.includes(cat.name)?'bg-gradient-to-br from-amber-200 via-gold to-orange-500':'bg-white/10 text-white'}`}>{selected.includes(cat.name)?'✓':'›'}</div>
-          </div>
-        </button>
-      ))}
-    </div>
-    <div className="mt-4 text-sm font-semibold text-white/60">Seçilən: {selected.length}</div>
-  </section>
-}
-
-function ProfileForm({profile,onSave,message}){
-  const [form,setForm]=React.useState({firstName:profile.firstName,lastName:profile.lastName,phone:profile.phone,email:profile.email,username:profile.username,password:'',confirmPassword:''});
-  React.useEffect(()=>setForm({firstName:profile.firstName,lastName:profile.lastName,phone:profile.phone,email:profile.email,username:profile.username,password:'',confirmPassword:''}),[profile]);
-  function update(name,value){setForm({...form,[name]:value})}
-  function submit(){onSave(form)}
-  return <section className="glass rounded-[2rem] p-6 shadow-[0_22px_70px_rgba(0,0,0,.42)] sm:p-7">
-    <h2 className="font-orbitron text-2xl font-black text-gold">Şəxsi məlumatlar</h2>
-    <p className="mt-2 text-sm text-white/55">Hesab məlumatlarınızı burada yeniləyə bilərsiniz.</p>
-    <div className="mt-7 grid gap-5 md:grid-cols-2">
-      <Input icon="✨" label="Ad" value={form.firstName} onChange={v=>update('firstName',v)}/>
-      <Input icon="⚡" label="Soyad" value={form.lastName} onChange={v=>update('lastName',v)}/>
-      <Input icon="📱" label="Nömrə" value={form.phone} onChange={v=>update('phone',v)}/>
-      <Input icon="✉️" label="Email" value={form.email} onChange={v=>update('email',v)}/>
-      <Input icon="🎮" label="İstifadəçi adı" value={form.username} onChange={v=>update('username',v)}/>
-      <Input icon="🔒" label="Şifrə" value={form.password} type="password" onChange={v=>update('password',v)}/>
-      <Input icon="🛡" label="Şifrəni təkrarla" value={form.confirmPassword} type="password" onChange={v=>update('confirmPassword',v)}/>
-    </div>
-    <button onClick={submit} className="mt-7 w-full rounded-2xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-5 py-4 font-orbitron text-sm font-black tracking-[.14em] text-black shadow-[0_14px_34px_rgba(255,179,0,.32)] transition hover:-translate-y-1 hover:shadow-gold">DƏYİŞİKLİKLƏRİ YADDA SAXLA</button>
-    {message&&<div className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-bold ${message.type==='bad'?'border-red-400/30 bg-red-500/10 text-red-200':'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'}`}>{message.text}</div>}
-  </section>
-}
-
-function Input({icon,label,value,type='text',onChange}){
-  const [visible,setVisible]=React.useState(false);
-  const isPass=type==='password';
+function Input({ icon, label, value, type = 'text', onChange }) {
+  const [visible, setVisible] = React.useState(false);
+  const isPass = type === 'password';
   return <label className="group block">
     <span className="mb-2 block font-rajdhani text-sm font-black tracking-[.12em] text-white/58">{label}</span>
     <div className="flex h-16 items-center gap-3 rounded-2xl border border-white/10 bg-black/35 px-4 transition group-hover:border-gold/25 group-focus-within:border-blue group-focus-within:shadow-blue">
       <span className="text-lg opacity-75">{icon}</span>
-      <input className="w-full bg-transparent text-sm font-bold text-white outline-none placeholder:text-white/30" value={value} type={isPass && !visible ? 'password':'text'} onChange={e=>onChange(e.target.value)}/>
-      {isPass && <button type="button" onClick={()=>setVisible(!visible)} className="rounded-xl px-2 py-1 text-sm text-gold hover:bg-white/10">👁</button>}
+      <input className="w-full bg-transparent text-sm font-bold text-white outline-none placeholder:text-white/30" value={value} type={isPass && !visible ? 'password' : 'text'} onChange={e => onChange(e.target.value)}/>
+      {isPass && <button type="button" onClick={() => setVisible(!visible)} className="rounded-xl px-2 py-1 text-sm text-gold hover:bg-white/10">👁</button>}
     </div>
-  </label>
+  </label>;
 }
 
-function StatGrid(){
-  return <section>
-    <h2 className="mb-5 font-orbitron text-2xl font-black text-white">Hesab statistikası</h2>
-    <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-      {stats.map(item=><div key={item[1]} className="glass rounded-3xl p-5 transition hover:-translate-y-1 hover:border-gold/30 hover:shadow-gold"><div className={`mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br ${item[3]} text-xl text-black shadow-lg`}>{item[0]}</div><div className="font-orbitron text-2xl font-black text-white">{item[1]}</div><div className="mt-1 text-sm font-semibold text-white/50">{item[2]}</div></div>)}
-    </div>
-  </section>
-}
-
-function OrdersPanel(){
-  const [orders,setOrders]=React.useState([]);
-  const [loading,setLoading]=React.useState(true);
-  const [error,setError]=React.useState('');
-  const [syncedAt,setSyncedAt]=React.useState(null);
-
-  const loadOrders = React.useCallback(() => {
-    apiRequest('/api/orders')
-      .then(d => { setOrders(d.orders || []); setSyncedAt(new Date()); setError(''); })
-      .catch(e => setError(e.message || 'Sifarişlər yüklənmədi'))
-      .finally(() => setLoading(false));
-  }, []);
-
-  React.useEffect(() => {
-    loadOrders();
-    const token = localStorage.getItem('zelixToken');
-    if (!token) return;
-    const es = new EventSource('/api/stream?token=' + encodeURIComponent(token));
-    es.addEventListener('order', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        const updated = data.order;
-        if (!updated) return;
-        setOrders(prev => {
-          const idx = prev.findIndex(o => o.id === updated.id);
-          if (idx >= 0) {
-            const next = [...prev];
-            next[idx] = updated;
-            return next;
-          }
-          return [updated, ...prev];
-        });
-        setSyncedAt(new Date());
-      } catch (err) {}
-    });
-    es.addEventListener('state', () => {
-      loadOrders();
-    });
-    es.onerror = () => {};
-    return () => { es.close(); };
-  }, [loadOrders]);
-
-  const statusClass = (code) => {
-    const c = String(code || '').toLowerCase();
-    if (c === 'completed') return 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/25';
-    if (c === 'rejected') return 'bg-red-500/15 text-red-300 border border-red-400/25';
-    if (c === 'processing') return 'bg-blue-500/15 text-blue-300 border border-blue-400/25';
-    return 'bg-yellow-500/10 text-amber-300 border border-amber-400/25';
-  };
-  const statusText = (o) => o.status_label || o.status || o.status_code || 'Gözləmədə';
-  const totalAmount = (o) => Number(o.total_amount || o.price || 0).toFixed(2);
-  const itemNames = (o) => (o.items || []).map(i => `${i.title} x${i.quantity}`).join(', ');
-
-  return <section className="glass rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)]">
-    <div className="mb-4 flex items-center justify-between">
-      <h3 className="font-orbitron text-xl font-black">Sifarişlərim</h3>
-      <div className="flex items-center gap-2">
-        {syncedAt && <span className="text-[11px] text-white/40">Sinx: {syncedAt.toLocaleTimeString()}</span>}
-        <span className="rounded-full border border-violet/30 bg-violet/10 px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] text-violet">Canlı</span>
-      </div>
-    </div>
-    {loading && <div className="mb-3 text-sm text-white/60">Yüklənir...</div>}
-    {error && <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
-    <div className="grid gap-3">
-      {orders.length===0 && !loading ? (
-        <div className="rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-white/60">Hələ sifariş yoxdur.</div>
-      ) : orders.map(o=>
-        <div key={o.id} className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="font-orbitron text-lg font-black">{o.game || (o.items && o.items[0] && o.items[0].game) || 'Oyun'} <span className="text-sm text-white/50">({itemNames(o) || o.package})</span></div>
-            <div className={`${statusClass(o.status_code)} rounded-full px-3 py-1 text-xs font-rajdhani font-black`}>{statusText(o)}</div>
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-white/70 sm:grid-cols-4">
-            <div>Cəmi: <span className="font-orbitron text-gold">{totalAmount(o)} ₼</span></div>
-            <div>Miqdar: <span className="font-orbitron">{(o.items || []).reduce((s,i)=>s+i.quantity,0) || o.quantity || 1}</span></div>
-            <div>ID: <span className="font-orbitron">{o.player_id||'—'}</span></div>
-            <div>Tarix: <span className="font-orbitron">{String(o.updated_at || o.created_at || '').slice(0,19).replace('T',' ')}</span></div>
-          </div>
-        </div>
-      )}
-    </div>
-  </section>
-}
-
-function statusBadge(status){
-  const s=String(status||'').toLowerCase();
-  if(s==='approved') return 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/25';
-  if(s==='rejected') return 'bg-red-500/15 text-red-300 border border-red-400/25';
-  return 'bg-yellow-500/10 text-amber-300 border border-amber-400/25';
-}
-function statusLabel(status){
-  const s=String(status||'').toLowerCase();
-  if(s==='approved') return 'Təsdiqləndi';
-  if(s==='rejected') return 'Rədd edildi';
-  return 'Gözləyir';
-}
-
-function DepositPanel(){
-  const [amount,setAmount]=React.useState('');
-  const [file,setFile]=React.useState(null);
-  const [busy,setBusy]=React.useState(false);
-  const [msg,setMsg]=React.useState(null);
-  const [deposits,setDeposits]=React.useState([]);
-  const fileRef=React.useRef(null);
-
-  function load(){
-    apiRequest('/api/deposits').then(d=>setDeposits(d.deposits||[])).catch(()=>{});
-  }
-  React.useEffect(load,[]);
-
-  async function submit(e){
-    e.preventDefault();
-    setMsg(null);
-    if(!file){ setMsg({type:'bad',text:'Zəhmət olmasa qəbz şəklini seçin.'}); return; }
-    const okType=['image/jpeg','image/png'].includes(file.type);
-    if(!okType){ setMsg({type:'bad',text:'Yalnız JPG və ya PNG faylları qəbul olunur.'}); return; }
-    if(file.size>5*1024*1024){ setMsg({type:'bad',text:'Fayl 5MB-dan böyük ola bilməz.'}); return; }
-    setBusy(true);
-    try{
-      const token=localStorage.getItem('zelixToken');
-      const fd=new FormData();
-      if(amount) fd.append('amount',amount);
-      fd.append('receipt',file);
-      const res=await fetch('/api/deposits',{method:'POST',credentials:'same-origin',headers:token?{Authorization:`Bearer ${token}`}:{},body:fd});
-      const data=await res.json();
-      if(!res.ok) throw new Error(data.message||'Yükləmə uğursuz oldu.');
-      setMsg({type:'ok',text:data.message});
-      setAmount(''); setFile(null); if(fileRef.current) fileRef.current.value='';
-      load();
-    }catch(err){ setMsg({type:'bad',text:err.message}); }
-    finally{ setBusy(false); }
-  }
-
-  return <section className="glass rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] sm:p-7">
-    <div className="mb-4 flex items-center justify-between">
-      <h3 className="font-orbitron text-xl font-black text-gold">Balans Artırma (Depozit)</h3>
-      <span className="rounded-full border border-violet/30 bg-violet/10 px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] text-violet">Qəbz Yüklə</span>
-    </div>
-    <p className="mb-5 text-sm text-white/55">Ödəniş qəbzinizi yükləyin. Admin təsdiqlədikdən sonra balansınız artırılacaq. (JPG/PNG, maksimum 5MB)</p>
-    <form onSubmit={submit} className="grid gap-4 sm:grid-cols-[1fr_1.4fr_auto] sm:items-end">
-      <label className="block">
-        <span className="mb-2 block font-rajdhani text-sm font-black tracking-[.12em] text-white/58">Məbləğ (₼, istəyə bağlı)</span>
-        <input type="number" step="0.01" min="0" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="məs. 50"
-          className="h-14 w-full rounded-2xl border border-white/10 bg-black/35 px-4 text-sm font-bold text-white outline-none transition focus:border-blue focus:shadow-blue placeholder:text-white/30"/>
-      </label>
-      <label className="block">
-        <span className="mb-2 block font-rajdhani text-sm font-black tracking-[.12em] text-white/58">Qəbz şəkli (JPG/PNG)</span>
-        <input ref={fileRef} type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" onChange={e=>setFile(e.target.files[0]||null)}
-          className="h-14 w-full rounded-2xl border border-white/10 bg-black/35 px-3 py-3 text-sm text-white/70 outline-none file:mr-3 file:rounded-xl file:border-0 file:bg-gold/20 file:px-4 file:py-2 file:font-rajdhani file:font-black file:text-gold"/>
-      </label>
-      <button type="submit" disabled={busy}
-        className={`h-14 rounded-2xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-6 font-orbitron text-sm font-black tracking-[.14em] text-black shadow-gold transition hover:-translate-y-1 ${busy?'opacity-60 cursor-wait':''}`}>{busy?'YÜKLƏNİR...':'GÖNDƏR'}</button>
-    </form>
-    {msg&&<div className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-bold ${msg.type==='bad'?'border-red-400/30 bg-red-500/10 text-red-200':'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'}`}>{msg.text}</div>}
-
-    <div className="mt-6">
-      <h4 className="mb-3 font-rajdhani text-sm font-black tracking-[.16em] text-white/55">SORĞULARIM</h4>
-      <div className="grid gap-3">
-        {deposits.length===0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-white/60">Hələ depozit sorğusu yoxdur.</div>
-        ) : deposits.map(d=>
-          <div key={d.id} className="flex flex-wrap items-center gap-4 rounded-2xl border border-white/10 bg-white/[.03] p-4">
-            <a href={`/uploads/receipts/${d.receipt_image}`} target="_blank" rel="noreferrer">
-              <img src={`/uploads/receipts/${d.receipt_image}`} alt="qəbz" className="h-16 w-16 rounded-xl border border-white/10 object-cover"/>
-            </a>
-            <div className="flex-1">
-              <div className="font-orbitron text-sm font-black text-gold">{Number(d.requested_amount||0).toFixed(2)} ₼</div>
-              <div className="text-xs text-white/45">{String(d.created_at||'').slice(0,19).replace('T',' ')}</div>
-              {d.admin_note&&<div className="mt-1 text-xs text-white/60">Qeyd: {d.admin_note}</div>}
-            </div>
-            <span className={`rounded-full px-3 py-1 text-xs font-rajdhani font-black ${statusBadge(d.status)}`}>{statusLabel(d.status)}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  </section>
-}
-
-function Footer(){
+function Footer() {
   return <footer className="mt-auto flex flex-col items-center justify-between gap-4 border-t border-white/10 py-6 text-sm text-white/45 md:flex-row">
     <div>© 2025 ZELIX TOPUP. Bütün hüquqlar qorunur.</div>
     <div className="flex gap-3"><a className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[.04] transition hover:border-blue/40 hover:text-blue" href="#">f</a><a className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[.04] transition hover:border-pink-400/40 hover:text-pink-300" href="#">◎</a><a className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[.04] transition hover:border-red-400/40 hover:text-red-300" href="#">▶</a><a className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[.04] transition hover:border-violet/40 hover:text-violet" href="#">⌁</a></div>
-  </footer>
+  </footer>;
 }
 
-function App(){
-  const fallbackProfile={username:'ZelixPlayer',firstName:'Elvin',lastName:'Əliyev',email:'elvin.aliyev@example.com',phone:'+994 50 123 45 67',memberId:'#ZLX10023',title:'Zelix ailəsinin fəal üzvü',joinedAt:'15.03.2025',level:25,xp:12450,nextXp:20000,zelixBalance:1250,mapBalance:5600};
-  const [profile,setProfile]=React.useState(fallbackProfile);
-  const [message,setMessage]=React.useState(null);
-  const [showProducts,setShowProducts]=React.useState(false);
-  const [showDeposit,setShowDeposit]=React.useState(false);
-  const [loggingOut,setLoggingOut]=React.useState(false);
-  const [categories,setCategories]=React.useState([]);
-  React.useEffect(()=>{
-    apiRequest('/api/categories').then(d=>setCategories(d.categories||[])).catch(()=>setCategories([]));
-  },[]);
-  const [selected,setSelected]=React.useState([]);
-  function toggle(name){ setSelected(prev=> prev.includes(name) ? prev.filter(n=>n!==name) : [...prev,name]); }
-  React.useEffect(()=>{apiRequest('/api/profile').then(data=>setProfile(data.profile)).catch(()=>setMessage({type:'bad',text:'Profil məlumatları üçün daxil olmaq lazımdır.'}))},[]);
-  React.useEffect(()=>{
-    if(window.location.pathname==='/balance/topup'||window.location.pathname==='/balance/topup/'){
-      setShowProducts(false); setShowDeposit(true);
-    }
-  },[]);
-  async function action(url,body){
-    try{
-      const data=await apiRequest(url,{method:'POST',body:JSON.stringify(body)});
-      if(data.profile)setProfile(data.profile);
-      setMessage({type:'ok',text:data.message});
-    }catch(error){setMessage({type:'bad',text:error.message})}
+function Sidebar({ active, profile, onNavigate, onLogout, counts }) {
+  const ring = profile.membershipLevel === 'premium' ? 'border-gold' : profile.membershipLevel === 'vip' ? 'border-blue' : 'border-violet';
+  const badgeClass = profile.membershipLevel === 'premium' ? 'border-gold/40 bg-gold/15 text-gold' : profile.membershipLevel === 'vip' ? 'border-blue/40 bg-blue/15 text-blue' : 'border-violet/40 bg-violet/15 text-violet';
+  return <aside className="glass flex h-fit flex-col rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] lg:sticky lg:top-24 lg:w-80">
+    <div className="flex flex-col items-center text-center">
+      <Avatar size="h-24 w-24" ring={ring}/>
+      <h2 className="mt-4 font-orbitron text-xl font-black">{profile.username || 'ZelixPlayer'}</h2>
+      <span className={`mt-2 rounded-full border px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] ${badgeClass}`}>{profile.membershipLabel || 'Standard'} ÜZV</span>
+    </div>
+    <div className="mt-6 grid gap-3">
+      <div className="rounded-2xl border border-white/10 bg-white/[.045] p-4 transition hover:border-gold/30 hover:shadow-gold">
+        <div className="flex items-center gap-3">
+          <div className="grid h-11 w-11 place-items-center rounded-xl bg-gold/10 text-xl">💎</div>
+          <div>
+            <div className="font-orbitron text-lg font-black text-gold">{Number(profile.zelixBalance || 0).toLocaleString('en-US')}</div>
+            <div className="font-rajdhani text-xs font-black tracking-[.16em] text-white/45">ZELIX BALANS</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <nav className="mt-6 space-y-1">
+      {sidebarItems.map(([key, icon, label]) => {
+        const isMembership = key === 'membership';
+        const href = isMembership ? '/membership.html' : '#';
+        const onClick = isMembership ? undefined : (e) => { e.preventDefault(); onNavigate(key); };
+        const badge = key === 'messages' && counts.messages > 0 ? <span className="ml-auto grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-gold px-1.5 text-[10px] font-black text-black">{counts.messages}</span> : null;
+        return <a key={key} href={href} onClick={onClick} className={`sidebar-link ${active === key ? 'active' : ''}`}><span className="text-lg">{icon}</span>{label}{badge}</a>;
+      })}
+      <a href="#" onClick={e => { e.preventDefault(); onLogout(); }} className="sidebar-link text-red-300 hover:bg-red-500/10 hover:text-red-200"><span className="text-lg">⏻</span>Çıxış</a>
+    </nav>
+    <div className="relative mt-6 overflow-hidden rounded-3xl border border-gold/20 bg-[radial-gradient(circle_at_20%_10%,rgba(255,179,0,.25),transparent_34%),linear-gradient(135deg,rgba(138,46,255,.28),rgba(0,0,0,.9))] p-5">
+      <div className="absolute -right-7 bottom-0 text-7xl opacity-25">🎮</div>
+      <div className="relative z-10 font-orbitron text-lg font-black leading-tight text-gold">GÜCLÜ HESAB TƏHLÜKƏSİZ GƏLƏCƏK!</div>
+      <a href="/support.html" className="relative z-10 mt-4 inline-block rounded-xl border border-gold/35 bg-black/40 px-4 py-2 font-rajdhani text-xs font-black text-gold transition hover:bg-gold hover:text-black">DƏSTƏK</a>
+    </div>
+  </aside>;
+}
+
+function DashboardSection({ profile, stats, recentOrders, loading }) {
+  const quickActions = [['🛒', 'Sifariş et', '/'], ['💳', 'Balans yüklə', '#deposit'], ['🏷', 'Kupon əlavə et', '#coupons'], ['✉', 'Bildirişlər', '#messages']];
+  const ring = profile.membershipLevel === 'premium' ? 'border-gold' : profile.membershipLevel === 'vip' ? 'border-blue' : 'border-violet';
+  const badgeClass = profile.membershipLevel === 'premium' ? 'border-gold/40 bg-gold/15 text-gold' : profile.membershipLevel === 'vip' ? 'border-blue/40 bg-blue/15 text-blue' : 'border-violet/40 bg-violet/15 text-violet';
+  const progress = Math.round((profile.loyaltyProgress || 0) * 100);
+  return <div className="space-y-6">
+    <section className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_78%_34%,rgba(255,179,0,.28),transparent_30%),radial-gradient(circle_at_18%_18%,rgba(138,46,255,.35),transparent_32%),linear-gradient(135deg,#101018,#000)] p-6 shadow-[0_28px_90px_rgba(0,0,0,.55)] sm:p-8">
+      <div className="absolute inset-0 grid-bg opacity-25"></div>
+      <div className="absolute right-4 top-0 font-orbitron text-[11rem] font-black leading-none text-white/[.035] sm:text-[16rem]">Z</div>
+      <div className="relative z-10 flex min-h-[180px] flex-col justify-end">
+        <div className="mb-4 inline-flex w-fit rounded-full border border-gold/25 bg-gold/10 px-4 py-2 font-rajdhani text-xs font-black tracking-[.2em] text-gold shadow-gold">ƏSAS PANEL</div>
+        <h1 className="font-orbitron text-4xl font-black text-white sm:text-6xl"><span className="gold-text">Xoş gəldin,</span> {profile.username}</h1>
+      </div>
+    </section>
+    <section className="grid gap-5 xl:grid-cols-[1.3fr_.7fr]">
+      <div className="glass card-hover rounded-[2rem] p-6 shadow-[0_22px_70px_rgba(0,0,0,.42)]">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+          <Avatar size="h-28 w-28" ring={ring}/>
+          <div className="flex-1">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="font-orbitron text-3xl font-black">{profile.username}</h2>
+              <span className={`rounded-full border px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] ${badgeClass}`}>{profile.membershipLabel || 'Standard'} ÜZV</span>
+            </div>
+            <div className="mt-2 font-rajdhani text-sm font-black tracking-[.18em] text-gold">ID: {profile.memberId}</div>
+            <p className="mt-2 text-sm text-white/60">{profile.title}</p>
+            <p className="mt-1 text-sm text-white/42">Qoşulma tarixi: {profile.joinedAt}</p>
+            {profile.nextMembershipLevel && <div className="mt-3">
+              <div className="flex items-center justify-between text-xs text-white/60"><span>Növbəti səviyyə: {profile.nextMembershipLevel}</span><span>{progress}%</span></div>
+              <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-gradient-to-r from-violet via-purple-500 to-gold" style={{ width: `${progress}%` }}></div></div>
+            </div>}
+          </div>
+        </div>
+      </div>
+      <div className="glass card-hover rounded-[2rem] p-6 shadow-[0_22px_70px_rgba(0,0,0,.42)]">
+        <div className="flex items-center justify-between gap-4">
+          <h3 className="font-orbitron text-2xl font-black text-gold">BALANS</h3>
+          <div className="grid h-16 w-16 place-items-center rounded-3xl border border-gold/40 bg-gold/20 font-orbitron text-2xl font-black text-white shadow-gold">₼</div>
+        </div>
+        <div className="mt-4 font-orbitron text-4xl font-black text-white">{formatMoney(profile.zelixBalance)}</div>
+        <a href="#deposit" className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 py-3 font-orbitron text-sm font-black tracking-[.14em] text-black shadow-gold transition hover:-translate-y-1">ARTIR</a>
+      </div>
+    </section>
+    <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="glass card-hover rounded-3xl p-5"><div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-violet to-purple-500 text-xl text-black shadow-lg">📅</div><div className="font-orbitron text-2xl font-black text-white">{stats.accountAgeDays || 0}</div><div className="mt-1 text-sm font-semibold text-white/50">Gün fəaliyyət</div></div>
+      <div className="glass card-hover rounded-3xl p-5"><div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-blue to-cyan-500 text-xl text-black shadow-lg">🛍</div><div className="font-orbitron text-2xl font-black text-white">{stats.completedOrders || 0}</div><div className="mt-1 text-sm font-semibold text-white/50">Tamamlanmış sifariş</div></div>
+      <div className="glass card-hover rounded-3xl p-5"><div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 text-xl text-black shadow-lg">💎</div><div className="font-orbitron text-2xl font-black text-white">{formatMoney(stats.totalDeposits || 0)}</div><div className="mt-1 text-sm font-semibold text-white/50">Ümumi depozit</div></div>
+      <div className="glass card-hover rounded-3xl p-5"><div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-emerald-400 to-green-500 text-xl text-black shadow-lg">🛡</div><div className="font-orbitron text-2xl font-black text-white">100%</div><div className="mt-1 text-sm font-semibold text-white/50">Hesab qoruması</div></div>
+    </section>
+    <section className="glass card-hover rounded-[2rem] p-6 shadow-[0_22px_70px_rgba(0,0,0,.42)]">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="font-orbitron text-xl font-black">Son sifarişlər</h3>
+        <a href="#orders" className="text-sm font-bold text-gold hover:underline">Hamısını gör</a>
+      </div>
+      {loading && <div className="text-sm text-white/60">Yüklənir...</div>}
+      {!loading && recentOrders.length === 0 && <div className="rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-white/60">Hələ sifariş yoxdur.</div>}
+      <div className="grid gap-3">
+        {recentOrders.map(o => <div key={o.id} className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="font-orbitron text-lg font-black">{o.game || 'Oyun'} <span className="text-sm text-white/50">{o.package || (o.items && o.items[0] && o.items[0].title)}</span></div>
+            <span className={`rounded-full px-3 py-1 text-xs font-rajdhani font-black ${statusClass(o.status_code)}`}>{statusLabel(o.status_code)}</span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-white/70 sm:grid-cols-4">
+            <div>Cəmi: <span className="font-orbitron text-gold">{formatMoney(o.total_amount || o.price)}</span></div>
+            <div>ID: <span className="font-orbitron">{o.player_id || '—'}</span></div>
+            <div>Tarix: <span className="font-orbitron">{formatDateShort(o.created_at)}</span></div>
+            <div>Miqdar: <span className="font-orbitron">{(o.items || []).reduce((s, i) => s + i.quantity, 0) || o.quantity || 1}</span></div>
+          </div>
+        </div>)}
+      </div>
+    </section>
+    <section className="glass card-hover rounded-[2rem] p-6">
+      <h3 className="mb-4 font-orbitron text-xl font-black text-white">Sürətli əməliyyatlar</h3>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {quickActions.map(([icon, label, href]) => <a key={label} href={href} className="group flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[.03] p-4 transition hover:border-gold/40 hover:bg-white/[.06]"><span className="text-2xl">{icon}</span><span className="font-rajdhani font-bold tracking-wide text-white/80 group-hover:text-white">{label}</span><span className="ml-auto text-gold">›</span></a>)}
+      </div>
+    </section>
+  </div>;
+}
+
+function OrdersSection() {
+  const { data, loading, error, reload } = useFetch('/api/orders');
+  const orders = data?.orders || [];
+  const { tick } = useSSE();
+  React.useEffect(() => { if (tick) reload(); }, [tick, reload]);
+  return <div className="space-y-6">
+    <div className="glass rounded-[2rem] p-6">
+      <h2 className="font-orbitron text-3xl font-black text-gold">Sifarişlərim</h2>
+      <p className="mt-2 text-sm text-white/55">Bütün sifarişlərinizi real vaxtda izləyin.</p>
+    </div>
+    <div className="glass card-hover rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)]">
+      {loading && <div className="text-sm text-white/60">Yüklənir...</div>}
+      {error && <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
+      {orders.length === 0 && !loading && <div className="flex flex-col items-center rounded-2xl border border-dashed border-white/15 bg-white/[.02] p-10 text-center">
+        <div className="mb-4 text-6xl opacity-40">🛒</div>
+        <h3 className="font-orbitron text-xl font-black text-white">Hələ sifariş yoxdur</h3>
+        <p className="mt-2 max-w-md text-sm text-white/55">İlk sifarişinizi vermək üçün məhsullar səhifəsinə keçin və balansınızı yoxlayın.</p>
+        <a href="/" className="mt-5 rounded-2xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-6 py-3 font-orbitron text-sm font-black tracking-[.12em] text-black shadow-gold transition hover:-translate-y-1">MƏHSULLARA KEÇ</a>
+      </div>}
+      <div className="grid gap-3">
+        {orders.map(o => <div key={o.id} className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="font-orbitron text-lg font-black">{o.game || 'Oyun'} <span className="text-sm text-white/50">{o.package || (o.items && o.items[0] && o.items[0].title)}</span></div>
+            <span className={`rounded-full px-3 py-1 text-xs font-rajdhani font-black ${statusClass(o.status_code)}`}>{statusLabel(o.status_code)}</span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-white/70 sm:grid-cols-4">
+            <div>Cəmi: <span className="font-orbitron text-gold">{formatMoney(o.total_amount || o.price)}</span></div>
+            <div>Miqdar: <span className="font-orbitron">{(o.items || []).reduce((s, i) => s + i.quantity, 0) || o.quantity || 1}</span></div>
+            <div>ID: <span className="font-orbitron">{o.player_id || '—'}</span></div>
+            <div>Tarix: <span className="font-orbitron">{formatDate(o.created_at)}</span></div>
+          </div>
+        </div>)}
+      </div>
+    </div>
+  </div>;
+}
+
+function DepositSection({ onToast }) {
+  const [amount, setAmount] = React.useState('');
+  const [file, setFile] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState(null);
+  const [deposits, setDeposits] = React.useState([]);
+  const fileRef = React.useRef(null);
+  function load() { apiRequest('/api/deposits').then(d => setDeposits(d.deposits || [])).catch(() => {}); }
+  React.useEffect(load, []);
+  async function submit(e) {
+    e.preventDefault(); setMsg(null);
+    if (!file) { setMsg({ type: 'bad', text: 'Zəhmət olmasa qəbz şəklini seçin.' }); return; }
+    if (!['image/jpeg', 'image/png'].includes(file.type)) { setMsg({ type: 'bad', text: 'Yalnız JPG və ya PNG faylları qəbul olunur.' }); return; }
+    if (file.size > 5 * 1024 * 1024) { setMsg({ type: 'bad', text: 'Fayl 5MB-dan böyük ola bilməz.' }); return; }
+    setBusy(true);
+    try {
+      const token = localStorage.getItem('zelixToken');
+      const fd = new FormData();
+      if (amount) fd.append('amount', amount);
+      fd.append('receipt', file);
+      const res = await fetch('/api/deposits', { method: 'POST', credentials: 'same-origin', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Yükləmə uğursuz oldu.');
+      setMsg({ type: 'ok', text: data.message });
+      setAmount(''); setFile(null); if (fileRef.current) fileRef.current.value = '';
+      load();
+    } catch (err) { setMsg({ type: 'bad', text: err.message }); }
+    finally { setBusy(false); }
   }
-  async function saveProfile(form){
-    await action('/api/profile',form);
-    if(form.password || form.confirmPassword) await action('/api/password',{password:form.password,confirmPassword:form.confirmPassword});
+  const card = { name: 'Capital Bank', number: '4169 7488 1234 5678', holder: 'ZELIX TOPUP MMC' };
+  async function copyCard() { await copyText(card.number); onToast('Kart nömrəsi kopyalandı'); }
+  return <div className="space-y-6">
+    <div className="glass rounded-[2rem] p-6">
+      <h2 className="font-orbitron text-3xl font-black text-gold">Balans yüklə</h2>
+      <p className="mt-2 text-sm text-white/55">Ödəniş edin, qəbz yükləyin, admin təsdiqindən sonra balans artırılacaq.</p>
+    </div>
+    <div className="grid gap-5 lg:grid-cols-2">
+      <div className="glass card-hover rounded-[2rem] p-6 shadow-[0_22px_70px_rgba(0,0,0,.42)]">
+        <h3 className="font-orbitron text-xl font-black text-white">Bank kartı</h3>
+        <p className="mt-1 text-sm text-white/55">Ödənişi aşağıdakı kart vasitəsilə edin və qəbzi yükləyin.</p>
+        <div className="mt-5 overflow-hidden rounded-2xl border border-gold/30 bg-gradient-to-br from-[#1a1230] via-[#0f0f18] to-[#1a1230] p-6 shadow-gold">
+          <div className="flex items-center justify-between"><span className="font-orbitron text-sm font-black tracking-widest text-white/80">{card.name}</span><span className="text-2xl">💳</span></div>
+          <div className="mt-6 font-orbitron text-2xl font-black tracking-widest text-white sm:text-3xl">{card.number}</div>
+          <div className="mt-4 flex items-center justify-between text-sm text-white/70"><span>{card.holder}</span><span className="font-orbitron">DEBIT</span></div>
+        </div>
+        <button onClick={copyCard} className="mt-4 w-full rounded-2xl border border-gold/30 bg-gold/10 py-3 font-rajdhani font-bold tracking-wide text-gold transition hover:bg-gold hover:text-black">Kart nömrəsini kopyala</button>
+      </div>
+      <div className="glass card-hover rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] sm:p-7">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="font-orbitron text-xl font-black text-gold">Qəbz yüklə</h3>
+          <span className="rounded-full border border-violet/30 bg-violet/10 px-3 py-1 font-rajdhani text-xs font-black tracking-[.16em] text-violet">JPG/PNG</span>
+        </div>
+        <form onSubmit={submit} className="grid gap-4">
+          <label className="block">
+            <span className="mb-2 block font-rajdhani text-sm font-black tracking-[.12em] text-white/58">Məbləğ (₼)</span>
+            <input type="number" step="0.01" min="0" value={amount} onChange={e => setAmount(e.target.value)} placeholder="məs. 50" className="h-14 w-full rounded-2xl border border-white/10 bg-black/35 px-4 text-sm font-bold text-white outline-none transition focus:border-blue focus:shadow-blue placeholder:text-white/30"/>
+          </label>
+          <label className="block">
+            <span className="mb-2 block font-rajdhani text-sm font-black tracking-[.12em] text-white/58">Qəbz şəkli</span>
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" onChange={e => setFile(e.target.files[0] || null)} className="h-14 w-full rounded-2xl border border-white/10 bg-black/35 px-3 py-3 text-sm text-white/70 outline-none file:mr-3 file:rounded-xl file:border-0 file:bg-gold/20 file:px-4 file:py-2 file:font-rajdhani file:font-black file:text-gold"/>
+          </label>
+          <button type="submit" disabled={busy} className={`h-14 rounded-2xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-6 font-orbitron text-sm font-black tracking-[.14em] text-black shadow-gold transition hover:-translate-y-1 ${busy ? 'opacity-60 cursor-wait' : ''}`}>{busy ? 'YÜKLƏNİR...' : 'GÖNDƏR'}</button>
+        </form>
+        {msg && <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-bold ${msg.type === 'bad' ? 'border-red-400/30 bg-red-500/10 text-red-200' : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'}`}>{msg.text}</div>}
+      </div>
+    </div>
+    <div className="glass card-hover rounded-[2rem] p-5">
+      <h4 className="mb-3 font-rajdhani text-sm font-black tracking-[.16em] text-white/55">SORĞULARIM</h4>
+      <div className="grid gap-3">
+        {deposits.length === 0 ? <div className="rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-white/60">Hələ depozit sorğusu yoxdur.</div> : deposits.map(d => <div key={d.id} className="flex flex-wrap items-center gap-4 rounded-2xl border border-white/10 bg-white/[.03] p-4">
+          <a href={`/uploads/receipts/${d.receipt_image}`} target="_blank" rel="noreferrer"><img src={`/uploads/receipts/${d.receipt_image}`} alt="qəbz" className="h-16 w-16 rounded-xl border border-white/10 object-cover"/></a>
+          <div className="flex-1">
+            <div className="font-orbitron text-sm font-black text-gold">{formatMoney(d.requested_amount)}</div>
+            <div className="text-xs text-white/45">{formatDate(d.created_at)}</div>
+            {d.admin_note && <div className="mt-1 text-xs text-white/60">Qeyd: {d.admin_note}</div>}
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-rajdhani font-black ${statusClass(d.status)}`}>{statusLabel(d.status)}</span>
+        </div>)}
+      </div>
+    </div>
+  </div>;
+}
+
+function TransactionsSection() {
+  const { data, loading, error } = useFetch('/api/balance/history');
+  const history = data?.history || [];
+  return <div className="space-y-6">
+    <div className="glass rounded-[2rem] p-6">
+      <h2 className="font-orbitron text-3xl font-black text-gold">Əməliyyat tarixçəsi</h2>
+      <p className="mt-2 text-sm text-white/55">Bütün balans əməliyyatlarınızı buradan izləyin.</p>
+    </div>
+    <div className="glass card-hover rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)]">
+      {loading && <div className="text-sm text-white/60">Yüklənir...</div>}
+      {error && <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
+      {history.length === 0 && !loading && <div className="rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-white/60">Hələ əməliyyat yoxdur.</div>}
+      <div className="grid gap-3">
+        {history.map(t => <div key={t.id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[.03] p-4">
+          <div className="flex items-center gap-4">
+            <div className={`grid h-12 w-12 place-items-center rounded-xl text-lg ${t.type === 'credit' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'}`}>{t.type === 'credit' ? '↓' : '↑'}</div>
+            <div>
+              <div className="font-rajdhani font-bold text-white">{t.description || t.category || 'Əməliyyat'}</div>
+              <div className="text-xs text-white/45">{formatDate(t.created_at)}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`font-orbitron font-black ${t.type === 'credit' ? 'text-emerald-300' : 'text-red-300'}`}>{t.type === 'credit' ? '+' : '-'}{formatMoney(t.amount)}</span>
+            <span className={`rounded-full px-3 py-1 text-xs font-rajdhani font-black ${statusClass(t.status)}`}>{statusLabel(t.status)}</span>
+          </div>
+        </div>)}
+      </div>
+    </div>
+  </div>;
+}
+
+function CouponsSection({ onToast }) {
+  const { data, loading, error, reload } = useFetch('/api/coupons');
+  const coupons = data?.coupons || [];
+  const [code, setCode] = React.useState('');
+  const [check, setCheck] = React.useState(null);
+  const [checking, setChecking] = React.useState(false);
+  async function validate() {
+    if (!code.trim()) return;
+    setChecking(true);
+    try {
+      const r = await apiRequest('/api/coupons/validate', { method: 'POST', body: JSON.stringify({ code, orderAmount: 100 }) });
+      setCheck({ ok: true, discount: r.discountAmount });
+    } catch (e) { setCheck({ ok: false, msg: e.message }); }
+    finally { setChecking(false); }
   }
-  async function logout(){
-    if(loggingOut)return; // prevent multiple clicks while in progress
+  function copyCode(c) { copyText(c).then(() => onToast('Kupon kodu kopyalandı')); }
+  return <div className="space-y-6">
+    <div className="glass rounded-[2rem] p-6">
+      <h2 className="font-orbitron text-3xl font-black text-gold">Kuponlarım</h2>
+      <p className="mt-2 text-sm text-white/55">Endirim kuponlarınızı idarə edin və yeni kupon yoxlayın.</p>
+    </div>
+    <div className="glass card-hover rounded-[2rem] p-6">
+      <h3 className="font-orbitron text-lg font-black text-white">Kupon yoxla</h3>
+      <div className="mt-4 flex gap-3">
+        <input value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="KUPON KODU" className="h-14 flex-1 rounded-2xl border border-white/10 bg-black/35 px-4 font-orbitron text-sm font-bold tracking-widest text-white outline-none transition focus:border-blue focus:shadow-blue placeholder:text-white/30"/>
+        <button onClick={validate} disabled={checking} className="h-14 rounded-2xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-6 font-orbitron text-sm font-black tracking-[.12em] text-black shadow-gold transition hover:-translate-y-1 disabled:opacity-60">{checking ? '...' : 'YOXLA'}</button>
+      </div>
+      {check && <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-bold ${check.ok ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-red-400/30 bg-red-500/10 text-red-200'}`}>{check.ok ? `Kupon keçərlidir. Endirim: ${formatMoney(check.discount)}` : check.msg}</div>}
+    </div>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {loading && <div className="col-span-full text-sm text-white/60">Yüklənir...</div>}
+      {error && <div className="col-span-full rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
+      {coupons.length === 0 && !loading && <div className="col-span-full rounded-xl border border-dashed border-white/15 bg-white/[.02] p-8 text-center text-sm text-white/60">Hələ kuponunuz yoxdur.</div>}
+      {coupons.map(c => <div key={c.id} className="glass card-hover rounded-2xl p-5">
+        <div className="flex items-center justify-between">
+          <span className="rounded-full bg-gold/15 px-3 py-1 font-rajdhani text-xs font-black text-gold">{c.discount_type === 'percentage' ? c.discount_value + '%' : formatMoney(c.discount_value)}</span>
+          <span className="text-xs text-white/45">{c.uses_left || '∞'} istifadə</span>
+        </div>
+        <div className="mt-4 font-orbitron text-2xl font-black tracking-widest text-white">{c.code}</div>
+        <p className="mt-1 text-sm text-white/55 line-clamp-2">{c.description || 'Endirim kuponu'}</p>
+        <div className="mt-4 flex gap-2"><button onClick={() => copyCode(c.code)} className="flex-1 rounded-xl border border-gold/30 bg-gold/10 py-2 font-rajdhani text-sm font-bold text-gold transition hover:bg-gold hover:text-black">Kopyala</button></div>
+      </div>)}
+    </div>
+  </div>;
+}
+
+function StatisticsSection({ stats }) {
+  const items = [
+    ['Hesab yaşı', `${stats.accountAgeDays || 0} gün`, '📅'],
+    ['Ümumi sifariş', stats.totalOrders || 0, '🛍'],
+    ['Tamamlanmış sifariş', stats.completedOrders || 0, '✅'],
+    ['Ümumi xərcləmə', formatMoney(stats.totalSpent || 0), '💰'],
+    ['Ümumi depozit', formatMoney(stats.totalDeposits || 0), '💎'],
+    ['Orta sifariş dəyəri', formatMoney(stats.averageOrderValue || 0), '📊'],
+    ['Sevdiyiniz oyun', stats.favoriteGame || '—', '🎮'],
+    ['Üzvlük səviyyəsi', stats.membershipLabel || 'Standard', '👑']
+  ];
+  return <div className="space-y-6">
+    <div className="glass rounded-[2rem] p-6">
+      <h2 className="font-orbitron text-3xl font-black text-gold">Hesab statistikası</h2>
+      <p className="mt-2 text-sm text-white/55">Oyun və alış-veriş fəaliyyətinizin ümumi görünüşü.</p>
+    </div>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {items.map(([label, value, icon]) => <div key={label} className="glass card-hover rounded-2xl p-5">
+        <div className="mb-3 text-2xl">{icon}</div>
+        <div className="font-orbitron text-2xl font-black text-white">{value}</div>
+        <div className="mt-1 text-sm font-semibold text-white/50">{label}</div>
+      </div>)}
+    </div>
+    <div className="glass card-hover rounded-[2rem] p-6">
+      <h3 className="font-orbitron text-xl font-black text-white">Üzvlük proqresi</h3>
+      <div className="mt-4">
+        <div className="flex items-center justify-between text-sm text-white/70">
+          <span>Aylıq yükləmə: {formatMoney(stats.monthlyTopup || 0)}</span>
+          <span>{stats.nextMembershipLevel ? `Növbəti: ${stats.nextMembershipLevel} (${formatMoney(stats.nextMembershipThreshold || 0)})` : 'Maksimum səviyyə'}</span>
+        </div>
+        <div className="mt-2 h-3 overflow-hidden rounded-full bg-white/8">
+          <div className="h-full rounded-full bg-gradient-to-r from-violet via-purple-500 to-gold" style={{ width: `${Math.round((stats.loyaltyProgress || 0) * 100)}%` }}></div>
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
+function SettingsSection({ profile, onSave, message }) {
+  const [form, setForm] = React.useState({ firstName: profile.firstName, lastName: profile.lastName, phone: profile.phone, email: profile.email, username: profile.username, password: '', confirmPassword: '' });
+  React.useEffect(() => setForm({ firstName: profile.firstName, lastName: profile.lastName, phone: profile.phone, email: profile.email, username: profile.username, password: '', confirmPassword: '' }), [profile]);
+  function update(name, value) { setForm({ ...form, [name]: value }); }
+  function submit() { onSave(form); }
+  return <div className="space-y-6">
+    <div className="glass rounded-[2rem] p-6">
+      <h2 className="font-orbitron text-3xl font-black text-gold">Profil tənzimləmələri</h2>
+      <p className="mt-2 text-sm text-white/55">Şəxsi məlumatlarınızı və təhlükəsizlik parametrlərinizi yeniləyin.</p>
+    </div>
+    <section className="glass card-hover rounded-[2rem] p-6 shadow-[0_22px_70px_rgba(0,0,0,.42)] sm:p-7">
+      <h3 className="font-orbitron text-2xl font-black text-gold">Şəxsi məlumatlar</h3>
+      <p className="mt-2 text-sm text-white/55">Hesab məlumatlarınızı burada yeniləyə bilərsiniz.</p>
+      <div className="mt-7 grid gap-5 md:grid-cols-2">
+        <Input icon="✨" label="Ad" value={form.firstName} onChange={v => update('firstName', v)}/>
+        <Input icon="⚡" label="Soyad" value={form.lastName} onChange={v => update('lastName', v)}/>
+        <Input icon="📱" label="Nömrə" value={form.phone} onChange={v => update('phone', v)}/>
+        <Input icon="✉️" label="Email" value={form.email} onChange={v => update('email', v)}/>
+        <Input icon="🎮" label="İstifadəçi adı" value={form.username} onChange={v => update('username', v)}/>
+        <Input icon="🔒" label="Yeni şifrə" value={form.password} type="password" onChange={v => update('password', v)}/>
+        <Input icon="🛡" label="Şifrəni təkrarla" value={form.confirmPassword} type="password" onChange={v => update('confirmPassword', v)}/>
+      </div>
+      <button onClick={submit} className="mt-7 w-full rounded-2xl bg-gradient-to-r from-amber-300 via-gold to-orange-500 px-5 py-4 font-orbitron text-sm font-black tracking-[.14em] text-black shadow-[0_14px_34px_rgba(255,179,0,.32)] transition hover:-translate-y-1 hover:shadow-gold">DƏYİŞİKLİKLƏRİ YADDA SAXLA</button>
+      {message && <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-bold ${message.type === 'bad' ? 'border-red-400/30 bg-red-500/10 text-red-200' : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'}`}>{message.text}</div>}
+    </section>
+  </div>;
+}
+
+function MessagesSection() {
+  const { data, loading, error, reload } = useFetch('/api/notifications');
+  const notifications = data?.notifications || [];
+  const { tick } = useSSE();
+  React.useEffect(() => { if (tick) reload(); }, [tick, reload]);
+  return <div className="space-y-6">
+    <div className="glass rounded-[2rem] p-6">
+      <h2 className="font-orbitron text-3xl font-black text-gold">Bildirişlər</h2>
+      <p className="mt-2 text-sm text-white/55">Hesabınızla bağlı son yeniliklər və mesajlar.</p>
+    </div>
+    <div className="glass card-hover rounded-[2rem] p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)]">
+      {loading && <div className="text-sm text-white/60">Yüklənir...</div>}
+      {error && <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
+      {notifications.length === 0 && !loading && <div className="rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-white/60">Yeni bildiriş yoxdur.</div>}
+      <div className="grid gap-3">
+        {notifications.map(n => <div key={n.id} className={`rounded-2xl border p-4 ${n.is_read ? 'border-white/10 bg-white/[.03]' : 'border-gold/30 bg-gold/10'}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="font-rajdhani font-bold text-white">{n.title}</div>
+              <div className="mt-1 text-sm text-white/70">{n.message}</div>
+              <div className="mt-2 text-xs text-white/40">{formatDate(n.created_at)}</div>
+            </div>
+            {!n.is_read && <span className="mt-1 h-2.5 w-2.5 rounded-full bg-gold"></span>}
+          </div>
+        </div>)}
+      </div>
+    </div>
+  </div>;
+}
+
+function App() {
+  const [section, setSection] = React.useState('dashboard');
+  const [profile, setProfile] = React.useState({ username: 'ZelixPlayer', firstName: '', lastName: '', email: '', phone: '', memberId: '#ZLX', title: 'Zelix üzvü', joinedAt: '—', level: 1, xp: 0, nextXp: 10, zelixBalance: 0, mapBalance: 0, membershipLevel: 'standard', membershipLabel: 'Standard', loyaltyProgress: 0, nextMembershipLevel: 'vip', nextMembershipThreshold: 100 });
+  const [stats, setStats] = React.useState({});
+  const [recentOrders, setRecentOrders] = React.useState([]);
+  const [notifications, setNotifications] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [message, setMessage] = React.useState(null);
+  const [toast, setToast] = React.useState(null);
+  const [loggingOut, setLoggingOut] = React.useState(false);
+  const { tick } = useSSE();
+
+  async function loadProfile() {
+    try {
+      const data = await apiRequest('/api/profile');
+      setProfile(data.profile || data);
+      setStats(data.stats || {});
+    } catch (e) { setMessage({ type: 'bad', text: 'Profil məlumatları üçün daxil olmaq lazımdır.' }); }
+    finally { setLoading(false); }
+  }
+  async function loadRecent() { try { const d = await apiRequest('/api/orders/recent'); setRecentOrders(d.orders || []); } catch (e) {} }
+  async function loadNotifications() { try { const d = await apiRequest('/api/notifications'); setNotifications(d.notifications || []); } catch (e) {} }
+
+  React.useEffect(() => { loadProfile(); loadRecent(); loadNotifications(); }, []);
+  React.useEffect(() => { loadProfile(); loadRecent(); loadNotifications(); }, [tick]);
+  React.useEffect(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (hash && sidebarItems.some(i => i[0] === hash)) setSection(hash);
+  }, []);
+  React.useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2200); return () => clearTimeout(t); }, [toast]);
+
+  function navigate(key) {
+    if (key === 'membership') { window.location.href = '/membership.html'; return; }
+    setSection(key);
+    window.location.hash = key;
+  }
+  async function action(url, body) {
+    try {
+      const data = await apiRequest(url, { method: 'POST', body: JSON.stringify(body) });
+      if (data.profile) setProfile(data.profile);
+      setMessage({ type: 'ok', text: data.message });
+    } catch (error) { setMessage({ type: 'bad', text: error.message }); }
+  }
+  async function saveProfile(form) {
+    await action('/api/profile', form);
+    if (form.password || form.confirmPassword) await action('/api/password', { password: form.password, confirmPassword: form.confirmPassword });
+  }
+  async function logout() {
+    if (loggingOut) return;
     setLoggingOut(true);
-    setMessage(null);
-    try{
-      const res=await fetch('/api/logout',{
-        method:'POST',
-        credentials:'same-origin',
-        headers:{'Content-Type':'application/json',...(localStorage.getItem('zelixToken')?{Authorization:`Bearer ${localStorage.getItem('zelixToken')}`}:{})},
-        body:'{}'
-      });
-      const data=await res.json().catch(()=>({}));
-      if(!res.ok||data.success===false){
-        throw new Error(data.message||'Çıxış uğursuz oldu. Yenidən cəhd edin.');
-      }
-      // Success: clear client state then redirect.
+    try {
+      const res = await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('zelixToken') ? { Authorization: `Bearer ${localStorage.getItem('zelixToken')}` } : {}) }, body: '{}' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) throw new Error(data.message || 'Çıxış uğursuz oldu.');
       localStorage.removeItem('zelixToken');
       localStorage.removeItem('zelixUser');
-      location.href='/login-v2.html';
-    }catch(error){
-      // Failure: show error and restore button state.
-      setMessage({type:'bad',text:error.message||'Çıxış zamanı xəta baş verdi.'});
-      setLoggingOut(false);
-    }
+      location.href = '/login-v2.html';
+    } catch (error) { setMessage({ type: 'bad', text: error.message || 'Çıxış zamanı xəta baş verdi.' }); setLoggingOut(false); }
   }
+
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+  let content = null;
+  if (section === 'dashboard') content = <DashboardSection profile={profile} stats={stats} recentOrders={recentOrders} loading={loading}/>;
+  else if (section === 'orders') content = <OrdersSection/>;
+  else if (section === 'deposit') content = <DepositSection onToast={setToast}/>;
+  else if (section === 'transactions') content = <TransactionsSection/>;
+  else if (section === 'coupons') content = <CouponsSection onToast={setToast}/>;
+  else if (section === 'statistics') content = <StatisticsSection stats={stats}/>;
+  else if (section === 'settings') content = <SettingsSection profile={profile} onSave={saveProfile} message={message}/>;
+  else if (section === 'messages') content = <MessagesSection/>;
+
   return <main className="relative flex min-h-screen flex-col bg-black text-white">
     <div className="fixed inset-0 grid-bg opacity-20"></div>
     <div className="fixed left-[-12rem] top-[-12rem] h-[34rem] w-[34rem] rounded-full bg-violet/25 blur-3xl"></div>
     <div className="fixed bottom-[-12rem] right-[-12rem] h-[36rem] w-[36rem] rounded-full bg-gold/15 blur-3xl"></div>
-    {message && <div className={`fixed right-4 top-4 z-50 rounded-2xl border px-4 py-3 text-sm font-bold shadow-lg ${message.type==='bad'?'border-red-400/40 bg-red-500/15 text-red-200':'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'}`}>{message.text}</div>}
+    {message && <div className={`fixed right-4 top-4 z-50 rounded-2xl border px-4 py-3 text-sm font-bold shadow-lg ${message.type === 'bad' ? 'border-red-400/40 bg-red-500/15 text-red-200' : 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'}`}>{message.text}</div>}
+    <div className={`copy-hint rounded-full border border-gold/30 bg-gold/15 px-4 py-2 text-sm font-bold text-gold ${toast ? 'show' : ''}`}>{toast}</div>
     <div className="relative z-10 mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-6 px-4 py-6 sm:px-6 lg:flex-row lg:px-8">
-      <Sidebar profile={profile} onAction={action} onLogout={logout} onShowProducts={(v)=>{setShowDeposit(false);setShowProducts(v);}} onShowDeposit={()=>{setShowProducts(false);setShowDeposit(true);}} showProducts={showProducts} showDeposit={showDeposit} loggingOut={loggingOut}/>
+      <Sidebar active={section} profile={profile} onNavigate={navigate} onLogout={logout} counts={{ messages: unreadCount }}/>
       <div className="flex flex-1 flex-col space-y-6">
-        {showProducts ? (
-          <ProductsPanel categories={categories} selected={selected} onToggle={toggle}/>
-        ) : showDeposit ? (
-          <>
-            <Hero/>
-            <DepositPanel/>
-          </>
-        ) : (
-          <>
-            <Hero/>
-            <Overview profile={profile}/>
-            <Tabs/>
-            <ProfileForm profile={profile} onSave={saveProfile} message={message}/>
-            <StatGrid/>
-            <OrdersPanel/>
-          </>
-        )}
+        {content}
         <Footer/>
       </div>
     </div>
-  </main>
+  </main>;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZELIX TOPUP | Üzvlük</title>
+<link rel="icon" type="image/svg+xml" href="/assets/zelix-generated-logo.svg">
+<link rel="alternate icon" href="/assets/zelix-logo.png">
+<link rel="apple-touch-icon" href="/assets/zelix-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Orbitron:wght@700;800;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<script>
+  window.__panel=function(title,detail){var r=document.getElementById('root')||document.body;r.innerHTML='<div style="max-width:600px;margin:12vh auto;padding:28px;border:1px solid #f87171;border-radius:18px;background:#1a0c0c;color:#fecaca;font-family:Inter,Arial,sans-serif;text-align:center"><h2 style="color:#ffb300;font-weight:900;margin:0 0 10px">'+title+'</h2><p style="line-height:1.6;margin:0 0 8px">'+detail+'</p><p style="line-height:1.6;margin:14px 0 0;color:#fca5a5">İnternet bağlantınızı yoxlayın və səhifəni yeniləyin.</p></div>';};
+  window.__cdnError=function(n){window.__panel('Səhifə yüklənə bilmədi','Lazımi resurs yüklənmədi: <b>'+n+'</b> (CDN bloklanmış ola bilər).');};
+  window.addEventListener('error',function(ev){var r=document.getElementById('root');if(ev&&ev.message&&r&&r.children.length===0){window.__panel('Səhifədə xəta baş verdi','<code style="color:#fca5a5">'+String(ev.message)+'</code>');}});
+  window.addEventListener('load',function(){setTimeout(function(){var r=document.getElementById('root');if(r&&r.children.length===0){if(typeof React==='undefined'||typeof ReactDOM==='undefined'){window.__cdnError('React/ReactDOM');}else if(!(window.Babel)){window.__cdnError('Babel');}}},2500);});
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/header.js" defer></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" onerror="window.__cdnError('React')"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" onerror="window.__cdnError('ReactDOM')"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js" onerror="window.__cdnError('Babel')"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { inter: ['Inter', 'sans-serif'], orbitron: ['Orbitron', 'sans-serif'], rajdhani: ['Rajdhani', 'sans-serif'] },
+        colors: { gold: '#ffb300', violet: '#8a2eff', blue: '#00c8ff', ink: '#07070a' },
+        boxShadow: { gold: '0 0 22px rgba(255,179,0,.42)', violet: '0 0 24px rgba(138,46,255,.38)', blue: '0 0 22px rgba(0,200,255,.3)' }
+      }
+    }
+  }
+</script>
+<style>
+  *{scrollbar-width:thin;scrollbar-color:#ffb300 #07070a}
+  *::-webkit-scrollbar{width:8px;height:8px}
+  *::-webkit-scrollbar-track{background:#07070a}
+  *::-webkit-scrollbar-thumb{background:linear-gradient(#ffb300,#fb923c);border-radius:999px}
+  body{font-family:Inter,sans-serif;background:#000;color:white;min-height:100vh;overflow-x:hidden}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:44px 44px}
+  .glass{background:linear-gradient(180deg,rgba(16,16,24,.84),rgba(7,7,10,.78));border:1px solid rgba(255,255,255,.09);backdrop-filter:blur(18px)}
+  .gold-text{background:linear-gradient(90deg,#fde68a,#ffb300,#fb923c);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .card-hover{transition:all .25s ease}
+  .card-hover:hover{transform:translateY(-4px);border-color:rgba(255,179,0,.35);box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 24px rgba(255,179,0,.12)}
+</style>
+<link rel="stylesheet" href="/responsive.css">
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const formatMoney = (n, currency='₼') => Number(n || 0).toFixed(2) + ' ' + currency;
+
+async function apiRequest(url, options = {}) {
+  const token = localStorage.getItem('zelixToken');
+  const response = await fetch(url, { ...options, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) } });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.message || 'Sorğu uğursuz oldu.');
+  return data;
+}
+
+const tiers = [
+  { key: 'standard', name: 'Standard', threshold: 0, discount: 0, color: 'gray', badge: 'Başlanğıc', icon: '⚔', features: ['Bütün məhsullara çıxış', 'Standart dəstək', '1% bonus xal', 'Məhdud kuponlar'] },
+  { key: 'vip', name: 'VIP', threshold: 100, discount: 0.10, color: 'blue', badge: 'Aktiv', icon: '🛡', features: ['Bütün məhsullara çıxış', 'Prioritet dəstək', '5% bonus xal', 'Xüsusi kuponlar', '10% endirim'] },
+  { key: 'premium', name: 'Premium', threshold: 500, discount: 0.20, color: 'gold', badge: 'Elit', icon: '👑', features: ['Bütün məhsullara çıxış', '7/24 öncəlikli dəstək', '10% bonus xal', 'Premium kuponlar', '20% endirim', 'Wholesale əlaqə'] }
+];
+
+const comparison = [
+  ['Aylıq yükləmə limiti', '0 ₼', '100 ₼', '500 ₼'],
+  ['Endirim', '0%', '10%', '20%'],
+  ['Bonus xal', '1%', '5%', '10%'],
+  ['Dəstək', 'Standart', 'Prioritet', '7/24 Elit'],
+  ['Xüsusi kuponlar', '✕', '✓', '✓'],
+  ['Wholesale əlaqə', '✕', '✕', '✓']
+];
+
+function WhatsAppButton() {
+  const text = encodeURIComponent('Salam, ZELIX TOPUP wholesale müştərisi olmaq istəyirəm.');
+  return <a href={`https://wa.me/994501234567?text=${text}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-600 px-6 py-3 font-orbitron text-sm font-black tracking-[.12em] text-white shadow-[0_14px_34px_rgba(0,255,127,.22)] transition hover:-translate-y-1">
+    <span className="text-xl">📱</span> WhatsApp ilə yaz
+  </a>;
+}
+
+function App() {
+  const [membership, setMembership] = React.useState({ level: 'standard', monthlyTopup: 0, progress: 0, nextLevel: 'vip', nextThreshold: 100 });
+  const [tiersData, setTiersData] = React.useState({});
+  React.useEffect(() => {
+    apiRequest('/api/membership').then(d => {
+      setMembership(d.membership || membership);
+      setTiersData(d.tiers || {});
+    }).catch(() => {});
+  }, []);
+
+  return <main className="relative flex min-h-screen flex-col bg-black text-white">
+    <div className="fixed inset-0 grid-bg opacity-20"></div>
+    <div className="fixed left-[-12rem] top-[-12rem] h-[34rem] w-[34rem] rounded-full bg-violet/25 blur-3xl"></div>
+    <div className="fixed bottom-[-12rem] right-[-12rem] h-[36rem] w-[36rem] rounded-full bg-gold/15 blur-3xl"></div>
+    <div className="relative z-10 mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
+      <a href="/profile.html" className="mb-4 inline-flex items-center gap-2 text-sm font-bold text-white/60 transition hover:text-gold">‹ Profilə qayıt</a>
+      <section className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_78%_34%,rgba(255,179,0,.28),transparent_30%),radial-gradient(circle_at_18%_18%,rgba(138,46,255,.35),transparent_32%),linear-gradient(135deg,#101018,#000)] p-6 shadow-[0_28px_90px_rgba(0,0,0,.55)] sm:p-8">
+        <div className="absolute inset-0 grid-bg opacity-25"></div>
+        <div className="absolute right-4 top-0 font-orbitron text-[11rem] font-black leading-none text-white/[.035] sm:text-[16rem]">Z</div>
+        <div className="relative z-10 flex min-h-[220px] flex-col justify-end">
+          <div className="mb-4 inline-flex w-fit rounded-full border border-gold/25 bg-gold/10 px-4 py-2 font-rajdhani text-xs font-black tracking-[.2em] text-gold shadow-gold">ÜZVLÜK PROQRAMI</div>
+          <h1 className="font-orbitron text-4xl font-black text-white sm:text-6xl"><span className="gold-text">Səviyyə artır,</span> daha çox qazan</h1>
+          <p className="mt-4 max-w-2xl text-white/60">Hər ay etdiyiniz yükləmə üzrə avtomatik səviyyə yüksəlişi. Nə qədər çox yükləsəniz, o qədər böyük endirim və üstünlüklər əldə edin.</p>
+        </div>
+      </section>
+
+      <section className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {tiers.map((t, i) => {
+          const isCurrent = membership.level === t.key;
+          const isNext = membership.nextLevel === t.key;
+          const border = t.key === 'premium' ? 'border-gold/40' : t.key === 'vip' ? 'border-blue/40' : 'border-white/10';
+          const glow = t.key === 'premium' ? 'shadow-gold' : t.key === 'vip' ? 'shadow-blue' : '';
+          return <div key={t.key} className={`glass card-hover relative rounded-[2rem] p-6 ${border} ${glow} ${isCurrent ? 'ring-1 ring-gold/30' : ''}`}>
+            {isCurrent && <div className="absolute -top-3 left-6 rounded-full bg-gold px-3 py-1 font-rajdhani text-xs font-black text-black">Sizin səviyyəniz</div>}
+            {isNext && !isCurrent && <div className="absolute -top-3 left-6 rounded-full bg-blue px-3 py-1 font-rajdhani text-xs font-black text-white">Növbəti</div>}
+            <div className="flex items-center justify-between">
+              <div className="text-4xl">{t.icon}</div>
+              <span className="rounded-full border border-white/10 bg-white/[.05] px-3 py-1 font-rajdhani text-xs font-black tracking-widest text-white/70">{t.badge}</span>
+            </div>
+            <h3 className="mt-4 font-orbitron text-3xl font-black">{t.name}</h3>
+            <div className="mt-2 font-orbitron text-2xl font-black text-gold">{t.discount > 0 ? `-${t.discount * 100}%` : '—'}</div>
+            <p className="mt-1 text-sm text-white/55">{formatMoney(t.threshold)}+ aylıq yükləmə</p>
+            <ul className="mt-5 space-y-2 text-sm text-white/70">
+              {t.features.map((f, idx) => <li key={idx} className="flex items-center gap-2"><span className="text-gold">✓</span>{f}</li>)}
+            </ul>
+          </div>;
+        })}
+      </section>
+
+      <section className="mt-6 glass card-hover rounded-[2rem] p-6">
+        <h2 className="font-orbitron text-2xl font-black text-gold">Səviyyə müqayisəsi</h2>
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[600px] text-left">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="py-3 font-rajdhani text-sm font-black tracking-widest text-white/50">Üstünlük</th>
+                <th className="py-3 font-orbitron font-black text-white/70">Standard</th>
+                <th className="py-3 font-orbitron font-black text-blue">VIP</th>
+                <th className="py-3 font-orbitron font-black text-gold">Premium</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comparison.map((row, idx) => <tr key={idx} className="border-b border-white/[.06]">
+                {row.map((cell, cidx) => <td key={cidx} className={`py-3 ${cidx === 0 ? 'font-rajdhani font-bold text-white/70' : 'font-orbitron text-white'}`}>{cell}</td>)}
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="mt-6 grid gap-5 lg:grid-cols-2">
+        <div className="glass card-hover rounded-[2rem] p-6">
+          <h2 className="font-orbitron text-2xl font-black text-white">Yüksəliş qaydaları</h2>
+          <ul className="mt-4 space-y-3 text-sm text-white/70">
+            <li className="flex items-start gap-3"><span className="text-gold">1.</span>Hər ayın 1-də hesablanma yenilənir.</li>
+            <li className="flex items-start gap-3"><span className="text-gold">2.</span>Status avtomatik təyin edilir; əlavə əməliyyat tələb olunmur.</li>
+            <li className="flex items-start gap-3"><span className="text-gold">3.</span>100 ₼+ yükləmə ilə VIP, 500 ₼+ ilə Premium qazanırsınız.</li>
+            <li className="flex items-start gap-3"><span className="text-gold">4.</span>Endirimlər növbəti sifarişdə avtomatik tətbiq edilir.</li>
+            <li className="flex items-start gap-3"><span className="text-gold">5.</span>Topdan satış üçün Premium səviyyə tələb olunur.</li>
+          </ul>
+        </div>
+        <div className="glass card-hover rounded-[2rem] p-6">
+          <h2 className="font-orbitron text-2xl font-black text-white">Cari proqresiniz</h2>
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-sm text-white/70">
+              <span>Aylıq yükləmə: <span className="font-orbitron text-gold">{formatMoney(membership.monthlyTopup)}</span></span>
+              <span>{membership.nextLevel ? `Növbəti: ${membership.nextLevel} (${formatMoney(membership.nextThreshold)})` : 'Maksimum səviyyə'}</span>
+            </div>
+            <div className="mt-3 h-4 overflow-hidden rounded-full bg-white/8">
+              <div className="h-full rounded-full bg-gradient-to-r from-violet via-purple-500 to-gold" style={{ width: `${Math.round((membership.progress || 0) * 100)}%` }}></div>
+            </div>
+          </div>
+          <div className="mt-6 rounded-2xl border border-gold/20 bg-gold/10 p-5">
+            <h3 className="font-orbitron text-lg font-black text-gold">Topdan satış (Wholesale)</h3>
+            <p className="mt-2 text-sm text-white/70">Premium üzvlər və böyük həcmli alıcılar üçün xüsusi qiymətlər və ayrılmış hesab meneceri.</p>
+            <div className="mt-4"><WhatsAppButton/></div>
+          </div>
+        </div>
+      </section>
+
+      <footer className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-white/10 py-6 text-sm text-white/45 md:flex-row">
+        <div>© 2025 ZELIX TOPUP. Bütün hüquqlar qorunur.</div>
+        <a href="/profile.html" className="text-gold hover:underline">Profilə qayıt</a>
+      </footer>
+    </div>
+  </main>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

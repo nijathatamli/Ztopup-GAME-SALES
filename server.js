@@ -92,6 +92,7 @@ async function adminAdjustBalance(request, response) {
   await dbCreateTransaction(userId, Math.abs(amount), amount > 0 ? 'credit' : 'debit', 'approved', reason, 'balance', reason);
   await dbCreateNotification(userId, amount > 0 ? 'Balans artırıldı' : 'Balans azaldıldı', 'Hesabınız ' + Math.abs(amount).toFixed(2) + ' ₼ ' + (amount > 0 ? 'əlavə edildi' : 'azaldıldı') + '.', 'balance');
   ssePushState(userId);
+  if (amount > 0) recalcMembership(userId).catch(() => {});
   const updated = await dbFindUserById(userId);
   sendJson(response, 200, { message: 'Balans yeniləndi', user: sanitizeUser(updated) });
 }
@@ -376,6 +377,48 @@ async function dbEnsureSchema() {
     await pool.query(`INSERT INTO order_status (code, label) VALUES ('rejected','Rədd edildi')
       ON CONFLICT (code) DO UPDATE SET label = EXCLUDED.label`);
   }
+
+  // Profile dashboard membership & coupon schema
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS membership_level TEXT NOT NULL DEFAULT \'standard\'');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_users_membership ON users(membership_level)');
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS coupons (
+    id VARCHAR(36) PRIMARY KEY,
+    code VARCHAR(60) NOT NULL UNIQUE,
+    discount_type VARCHAR(20) NOT NULL,
+    discount_value DECIMAL(10,2) NOT NULL DEFAULT 0,
+    max_uses INTEGER NOT NULL DEFAULT 0,
+    used_count INTEGER NOT NULL DEFAULT 0,
+    min_order_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+    public BOOLEAN NOT NULL DEFAULT false,
+    assigned_only BOOLEAN NOT NULL DEFAULT false,
+    active BOOLEAN NOT NULL DEFAULT true,
+    start_date TIMESTAMP NULL,
+    expiry_date TIMESTAMP NULL,
+    description TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_coupons_active ON coupons(active, expiry_date)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_coupons_public ON coupons(public, active)');
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS user_coupons (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    coupon_id VARCHAR(36) NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
+    uses_left INTEGER NOT NULL DEFAULT 1,
+    used_count INTEGER NOT NULL DEFAULT 0,
+    assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_user_coupon UNIQUE (user_id, coupon_id)
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_user_coupons_user ON user_coupons(user_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_user_coupons_coupon ON user_coupons(coupon_id)');
+
+  await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS coupon_id VARCHAR(36)');
+  await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_orders_coupon ON orders(coupon_id)');
 
   // Migrate legacy orders to order_items (one item per legacy order)
   const { rows: unmigrated } = await pool.query(`
@@ -959,6 +1002,91 @@ async function adminUpdateOrderStatus(request, response) {
   sendJson(response, 200, { message: 'Status yeniləndi.', order: freshOrder });
 }
 
+async function adminListCoupons(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const { rows } = await pool.query(
+    `SELECT c.*,
+            (SELECT COUNT(*) FROM user_coupons WHERE coupon_id = c.id) AS assigned_count
+     FROM coupons c ORDER BY c.created_at DESC`
+  );
+  sendJson(response, 200, { coupons: rows });
+}
+
+async function adminCreateCoupon(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const code = String(body.code || '').trim().toUpperCase();
+  const discountType = String(body.discountType || body.discount_type || '').trim().toLowerCase();
+  const discountValue = Number(body.discountValue || body.discount_value || 0);
+  const maxUses = parseInt(body.maxUses || body.max_uses || 0, 10) || 0;
+  const minOrderAmount = Number(body.minOrderAmount || body.min_order_amount || 0) || 0;
+  const publicFlag = Boolean(body.public || body.is_public || false);
+  const assignedOnly = Boolean(body.assignedOnly || body.assigned_only || false);
+  const active = body.active !== undefined ? Boolean(body.active) : true;
+  const expiryDate = body.expiryDate || body.expiry_date || null;
+  const description = String(body.description || '').trim();
+  const userIds = Array.isArray(body.userIds) ? body.userIds : [];
+
+  if (!code) return sendJson(response, 400, { message: 'Kupon kodu tələb olunur.' });
+  if (!['fixed', 'percentage'].includes(discountType)) return sendJson(response, 400, { message: 'Endirim tipi fixed və ya percentage olmalıdır.' });
+  if (!Number.isFinite(discountValue) || discountValue <= 0) return sendJson(response, 400, { message: 'Endirim dəyəri düzgün deyil.' });
+  if (discountType === 'percentage' && discountValue > 100) return sendJson(response, 400, { message: 'Faiz endirim 100% -dən çox ola bilməz.' });
+
+  const id = crypto.randomUUID();
+  try {
+    await pool.query(
+      `INSERT INTO coupons (id, code, discount_type, discount_value, max_uses, min_order_amount, public, assigned_only, active, expiry_date, description)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [id, code, discountType, discountValue, maxUses, minOrderAmount, publicFlag, assignedOnly, active, expiryDate || null, description || null]
+    );
+    for (const uid of userIds) {
+      if (!uid) continue;
+      const ucId = crypto.randomUUID();
+      const uses = Number.isFinite(body.usesPerUser) ? parseInt(body.usesPerUser, 10) : 1;
+      await pool.query(
+        `INSERT INTO user_coupons (id, user_id, coupon_id, uses_left) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (user_id, coupon_id) DO UPDATE SET uses_left = user_coupons.uses_left + EXCLUDED.uses_left`,
+        [ucId, uid, id, uses]
+      ).catch(() => {});
+    }
+    const { rows } = await pool.query('SELECT * FROM coupons WHERE id = $1 LIMIT 1', [id]);
+    sendJson(response, 201, { coupon: rows[0] });
+  } catch (e) {
+    if (e.constraint === 'coupons_code_key') return sendJson(response, 409, { message: 'Bu kupon kodu artıq mövcuddur.' });
+    console.error('[adminCreateCoupon]', e);
+    sendJson(response, 500, { message: 'Kupon yaradılarkən xəta baş verdi.' });
+  }
+}
+
+async function adminAssignCoupon(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const couponId = String(body.couponId || body.coupon_id || '').trim();
+  const userIds = Array.isArray(body.userIds) ? body.userIds : [];
+  const usesLeft = Number.isFinite(body.usesLeft) ? parseInt(body.usesLeft, 10) : 1;
+  if (!couponId || userIds.length === 0) return sendJson(response, 400, { message: 'couponId və userIds tələb olunur.' });
+  const { rows: cp } = await pool.query('SELECT id FROM coupons WHERE id = $1 LIMIT 1', [couponId]);
+  if (!cp.length) return sendJson(response, 404, { message: 'Kupon tapılmadı.' });
+  let assigned = 0;
+  for (const uid of userIds) {
+    if (!uid) continue;
+    const ucId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO user_coupons (id, user_id, coupon_id, uses_left) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (user_id, coupon_id) DO UPDATE SET uses_left = user_coupons.uses_left + EXCLUDED.uses_left`,
+      [ucId, uid, couponId, usesLeft]
+    ).then(() => assigned++).catch(() => {});
+  }
+  sendJson(response, 200, { message: `${assigned} istifadəçiyə kupon təyin edildi.`, assigned });
+}
+
+async function adminDeleteCoupon(request, response, id) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  if (!id) return sendJson(response, 400, { message: 'Kupon ID tələb olunur.' });
+  await pool.query('DELETE FROM coupons WHERE id = $1', [id]);
+  sendJson(response, 200, { message: 'Kupon silindi.' });
+}
+
 async function adminListUsers(request, response) {
   const admin = await requireAdmin(request, response); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
@@ -1247,6 +1375,208 @@ async function dbCleanupSessions() {
   await pool.query("DELETE FROM sessions WHERE expires_at < NOW() - INTERVAL '1 day'");
 }
 
+// ==========================================================
+// PROFILE DASHBOARD SERVICES (membership, coupons, statistics)
+// ==========================================================
+
+const MEMBERSHIP_TIERS = {
+  standard: { label: 'Standard', discount: 0, threshold: 0, badge: 'Standard', priority: 0 },
+  vip:      { label: 'VIP',      discount: 0.10, threshold: 100, badge: 'VIP', priority: 1 },
+  premium:  { label: 'Premium',  discount: 0.20, threshold: 500, badge: 'Premium', priority: 2 }
+};
+
+function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+
+function azeriDateLabel(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString('az-AZ', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function daysSince(d) {
+  if (!d) return 0;
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return 0;
+  return Math.max(0, Math.floor((Date.now() - dt.getTime()) / (1000 * 60 * 60 * 24)));
+}
+
+/* Sum successful credit transactions within the current calendar month for membership calculation. */
+async function getMonthlyTopupTotal(userId) {
+  const { rows } = await pool.query(
+    `SELECT COALESCE(SUM(amount),0) AS total
+     FROM transactions
+     WHERE user_id = $1 AND type = 'credit' AND status IN ('approved','completed')
+       AND created_at >= date_trunc('month', NOW())
+       AND created_at <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
+    [userId]
+  );
+  return Number(rows[0].total || 0);
+}
+
+async function getUserMembershipLevel(userId) {
+  const total = await getMonthlyTopupTotal(userId);
+  if (total >= MEMBERSHIP_TIERS.premium.threshold) return 'premium';
+  if (total >= MEMBERSHIP_TIERS.vip.threshold) return 'vip';
+  return 'standard';
+}
+
+async function getCurrentMembership(userId) {
+  const [userRow, total] = await Promise.all([
+    pool.query('SELECT membership_level FROM users WHERE id = $1 LIMIT 1', [userId]),
+    getMonthlyTopupTotal(userId)
+  ]);
+  const stored = (userRow.rows[0] && userRow.rows[0].membership_level) || 'standard';
+  const calculated = await getUserMembershipLevel(userId);
+  if (stored !== calculated) {
+    await pool.query('UPDATE users SET membership_level = $1 WHERE id = $2', [calculated, userId]);
+  }
+  const nextLevel = calculated === 'premium' ? null : (calculated === 'vip' ? 'premium' : 'vip');
+  const nextThreshold = nextLevel ? MEMBERSHIP_TIERS[nextLevel].threshold : null;
+  const progress = nextThreshold ? clamp(total / nextThreshold, 0, 1) : 1;
+  return {
+    level: calculated,
+    label: MEMBERSHIP_TIERS[calculated].label,
+    badge: MEMBERSHIP_TIERS[calculated].badge,
+    discount: MEMBERSHIP_TIERS[calculated].discount,
+    monthlyTopup: total,
+    nextLevel,
+    nextThreshold,
+    progress
+  };
+}
+
+async function recalcMembership(userId) {
+  const newLevel = await getUserMembershipLevel(userId);
+  const { rows } = await pool.query('SELECT membership_level FROM users WHERE id = $1 LIMIT 1', [userId]);
+  const oldLevel = rows[0] ? rows[0].membership_level : 'standard';
+  if (oldLevel !== newLevel) {
+    await pool.query('UPDATE users SET membership_level = $1 WHERE id = $2', [newLevel, userId]);
+    const tier = MEMBERSHIP_TIERS[newLevel];
+    await dbCreateNotification(userId, 'Üzvlük səviyyəniz yeniləndi', `Təbriklər! Artıq ${tier.label} üzvsünüz. ${Math.round(tier.discount * 100)}% endirim qazandınız.`, 'system');
+    ssePushState(userId);
+  }
+  return newLevel;
+}
+
+/* Coupon services */
+async function findCouponByCode(code) {
+  const { rows } = await pool.query(
+    `SELECT * FROM coupons WHERE LOWER(code) = LOWER($1) LIMIT 1`,
+    [String(code || '').trim()]
+  );
+  return rows[0] || null;
+}
+
+async function isCouponAvailableForUser(userId, coupon) {
+  if (!coupon || !coupon.active) return false;
+  const now = new Date();
+  if (coupon.start_date && new Date(coupon.start_date) > now) return false;
+  if (coupon.expiry_date && new Date(coupon.expiry_date) < now) return false;
+  if (coupon.max_uses > 0 && coupon.used_count >= coupon.max_uses) return false;
+  if (coupon.assigned_only) {
+    const { rows } = await pool.query(
+      `SELECT uses_left, used_count FROM user_coupons WHERE user_id = $1 AND coupon_id = $2 LIMIT 1`,
+      [userId, coupon.id]
+    );
+    if (!rows.length) return false;
+    const uc = rows[0];
+    if (uc.uses_left > 0 && uc.used_count >= uc.uses_left) return false;
+  }
+  return true;
+}
+
+async function getUserCoupons(userId, onlyActive = true) {
+  const now = new Date().toISOString();
+  const { rows } = await pool.query(
+    `SELECT c.*, uc.id AS user_coupon_id, uc.uses_left, uc.used_count, uc.assigned_at
+     FROM user_coupons uc
+     JOIN coupons c ON c.id = uc.coupon_id
+     WHERE uc.user_id = $1
+       ${onlyActive ? `AND c.active = true
+       AND (c.start_date IS NULL OR c.start_date <= $2)
+       AND (c.expiry_date IS NULL OR c.expiry_date >= $2)
+       AND (c.max_uses = 0 OR c.used_count < c.max_uses)
+       AND (uc.uses_left = 0 OR uc.used_count < uc.uses_left)` : ''}
+     ORDER BY c.created_at DESC`,
+    onlyActive ? [userId, now] : [userId]
+  );
+  return rows;
+}
+
+async function validateCoupon(userId, code, orderAmount = 0) {
+  const coupon = await findCouponByCode(code);
+  if (!coupon) return { valid: false, message: 'Kupon tapılmadı.' };
+  const available = await isCouponAvailableForUser(userId, coupon);
+  if (!available) return { valid: false, message: 'Bu kupon artıq etibarlı deyil.' };
+  if (Number(orderAmount) > 0 && Number(coupon.min_order_amount) > Number(orderAmount)) {
+    return { valid: false, message: `Minimum sifariş məbləği ${Number(coupon.min_order_amount).toFixed(2)} ₼ olmalıdır.` };
+  }
+  const discount = coupon.discount_type === 'percentage'
+    ? Number(orderAmount) * (Number(coupon.discount_value) / 100)
+    : Number(coupon.discount_value);
+  return { valid: true, coupon, discount: Math.min(discount, Number(orderAmount) || discount) };
+}
+
+/* Calculate discount for a coupon; does NOT decrement usage (use decrementCouponUse at order creation). */
+async function applyCoupon(userId, code, orderAmount) {
+  const result = await validateCoupon(userId, code, orderAmount);
+  if (!result.valid) return result;
+  return { valid: true, coupon: result.coupon, discountAmount: result.discount };
+}
+
+async function decrementCouponUse(userId, couponId) {
+  await pool.query('UPDATE coupons SET used_count = used_count + 1 WHERE id = $1', [couponId]);
+  await pool.query(
+    `UPDATE user_coupons SET used_count = used_count + 1
+     WHERE user_id = $1 AND coupon_id = $2 AND (uses_left = 0 OR used_count < uses_left)`,
+    [userId, couponId]
+  );
+}
+
+/* Statistics aggregation for the dashboard */
+async function getUserStatistics(userId) {
+  const [userRow, orders, deposits, completed, spent, credits, debits, fav, coupons] = await Promise.all([
+    pool.query('SELECT created_at, membership_level FROM users WHERE id = $1 LIMIT 1', [userId]),
+    pool.query('SELECT COUNT(*)::int AS c FROM orders WHERE user_id = $1', [userId]),
+    pool.query('SELECT COUNT(*)::int AS c FROM deposit_requests WHERE user_id = $1 AND status = $2', [userId, 'approved']),
+    pool.query("SELECT COUNT(*)::int AS c FROM orders WHERE user_id = $1 AND status_code = 'completed'", [userId]),
+    pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE user_id = $1 AND status_code = 'completed'", [userId]),
+    pool.query("SELECT COALESCE(SUM(amount),0) AS total FROM transactions WHERE user_id = $1 AND type = 'credit' AND status = 'approved'", [userId]),
+    pool.query("SELECT COALESCE(SUM(amount),0) AS total FROM transactions WHERE user_id = $1 AND type = 'debit' AND status = 'approved'", [userId]),
+    pool.query(`SELECT game, COUNT(*)::int AS c FROM orders WHERE user_id = $1 GROUP BY game ORDER BY c DESC LIMIT 1`, [userId]),
+    pool.query(`SELECT COALESCE(SUM(c.discount_value),0) AS total
+                FROM user_coupons uc
+                JOIN coupons c ON c.id = uc.coupon_id
+                WHERE uc.user_id = $1 AND uc.used_count > 0`, [userId])
+  ]);
+  const joinedAt = userRow.rows[0] ? userRow.rows[0].created_at : null;
+  const totalOrders = orders.rows[0].c;
+  const completedOrders = completed.rows[0].c;
+  const totalSpent = Number(spent.rows[0].total || 0);
+  const totalDeposits = Number(credits.rows[0].total || 0);
+  const avgOrder = totalOrders > 0 ? totalSpent / totalOrders : 0;
+  const favoriteGame = fav.rows[0] ? fav.rows[0].game : null;
+  const membership = await getCurrentMembership(userId);
+  return {
+    accountAgeDays: daysSince(joinedAt),
+    joinedAt: azeriDateLabel(joinedAt),
+    totalOrders,
+    completedOrders,
+    totalSpent,
+    totalDeposits,
+    averageOrderValue: avgOrder,
+    favoriteGame,
+    membershipLevel: membership.level,
+    membershipLabel: membership.label,
+    monthlyTopup: membership.monthlyTopup,
+    nextMembershipLevel: membership.nextLevel,
+    nextMembershipThreshold: membership.nextThreshold,
+    loyaltyProgress: membership.progress,
+    totalSavings: Number(coupons.rows[0].total || 0) + (totalSpent * membership.discount)
+  };
+}
+
 // ==========================================
 // ROUTE LOGIC
 // ==========================================
@@ -1276,31 +1606,41 @@ async function requireUser(request, response) {
   return user;
 }
 
-function buildProfile(user) {
+async function buildProfile(user) {
   const safeUser = sanitizeUser(user);
+  const [membership, stats] = await Promise.all([
+    getCurrentMembership(user.id),
+    getUserStatistics(user.id)
+  ]);
   return {
     user: safeUser,
     profile: {
-      username: safeUser.username || 'ZelixPlayer',
-      firstName: safeUser.firstName || 'Elvin',
-      lastName: safeUser.lastName || 'Əliyev',
-      email: safeUser.email || 'elvin.aliyev@example.com',
-      phone: '+994 50 123 45 67',
-      memberId: `#ZLX${String(user.id || '').slice(0, 5).toUpperCase() || '10023'}`,
-      vip: true,
-      title: 'Zelix ailəsinin fəal üzvü',
-      joinedAt: '15.03.2025',
-      level: 25,
-      xp: 12450,
-      nextXp: 20000,
+      id: safeUser.id,
+      username: safeUser.username,
+      firstName: safeUser.firstName || '',
+      lastName: safeUser.lastName || '',
+      name: safeUser.name || '',
+      email: safeUser.email,
+      phone: user.phone || '',
+      memberId: `#ZLX${String(user.id || '').slice(0, 5).toUpperCase()}`,
+      membershipLevel: membership.level,
+      membershipLabel: membership.label,
+      membershipBadge: membership.badge,
+      membershipDiscount: membership.discount,
+      monthlyTopup: membership.monthlyTopup,
+      nextMembershipLevel: membership.nextLevel,
+      nextMembershipThreshold: membership.nextThreshold,
+      loyaltyProgress: membership.progress,
+      title: `${membership.label} üzv`,
+      joinedAt: azeriDateLabel(user.created_at),
+      createdAt: user.created_at,
+      level: 1,
+      xp: stats.completedOrders,
+      nextXp: Math.max(stats.completedOrders + 1, 10),
       zelixBalance: Number(user.balance || 0),
-      mapBalance: 5600
+      mapBalance: 0
     },
-    stats: {
-      activeDays: 45,
-      completedOrders: 28,
-      protection: 100
-    }
+    stats
   };
 }
 
@@ -1463,7 +1803,7 @@ async function logout(request, response) {
 async function profile(request, response) {
   const user = await requireUser(request, response);
   if (!user) return;
-  sendJson(response, 200, buildProfile(user));
+  sendJson(response, 200, await buildProfile(user));
 }
 
 async function updateProfile(request, response) {
@@ -1487,7 +1827,7 @@ async function updateProfile(request, response) {
   const name = `${firstName} ${lastName}`.trim();
   await dbUpdateProfile(user.id, username, name, firstName, lastName, email);
   const updatedUser = await dbFindUserById(user.id);
-  sendJson(response, 200, { message: 'Dəyişikliklər yadda saxlandı.', ...buildProfile(updatedUser) });
+  sendJson(response, 200, { message: 'Dəyişikliklər yadda saxlandı.', ...(await buildProfile(updatedUser)) });
 }
 
 async function topup(request, response) {
@@ -1502,7 +1842,7 @@ async function topup(request, response) {
   const updatedUser = await dbFindUserById(user.id);
   // record transaction (credit)
   await dbCreateTransaction(user.id, amount, 'credit', 'approved', 'Manual topup');
-  sendJson(response, 200, { message: `${amount} ZELIX balansınıza əlavə edildi.`, ...buildProfile(updatedUser) });
+  sendJson(response, 200, { message: `${amount} ZELIX balansınıza əlavə edildi.`, ...(await buildProfile(updatedUser)) });
 }
 
 async function updatePassword(request, response) {
@@ -1598,7 +1938,7 @@ async function buyProduct(request, response) {
   const updatedUser = await dbFindUserById(user.id);
   sendJson(response, 200, {
     message: `Təbriklər! ${packageName} (${price} ZELIX) hesabınıza yükləndi. Oyunçu ID: ${playerId}`,
-    ...buildProfile(updatedUser)
+    ...(await buildProfile(updatedUser))
   });
 }
 
@@ -1759,11 +2099,70 @@ async function balanceTopup(request, response) {
   await dbCreateNotification(user.id, 'Balans artırıldı', `Hesabınıza ${amount.toFixed(2)} AZN əlavə olundu.`, 'balance');
   const fresh = await dbFindUserById(user.id);
   ssePushState(user.id);
+  recalcMembership(user.id).catch(() => {});
   sendJson(response, 200, {
     message: `${amount.toFixed(2)} AZN balansınıza əlavə edildi.`,
     balance: Number(fresh.balance || 0),
     currency: 'AZN'
   });
+}
+
+// ==========================================
+// PROFILE DASHBOARD API
+// ==========================================
+
+async function membershipInfo(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const membership = await getCurrentMembership(user.id);
+  const tiers = Object.fromEntries(
+    Object.entries(MEMBERSHIP_TIERS).map(([k, v]) => [k, { label: v.label, discount: v.discount, threshold: v.threshold, badge: v.badge }])
+  );
+  sendJson(response, 200, { membership, tiers });
+}
+
+async function userCoupons(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const all = url.searchParams.get('all') === 'true';
+  const coupons = await getUserCoupons(user.id, !all);
+  sendJson(response, 200, { coupons });
+}
+
+async function validateCouponEndpoint(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const code = String(body.code || '').trim();
+  const orderAmount = Number(body.orderAmount || 0);
+  if (!code) return sendJson(response, 400, { message: 'Kupon kodu daxil edin.' });
+  const result = await validateCoupon(user.id, code, orderAmount);
+  if (!result.valid) return sendJson(response, 400, { message: result.message });
+  sendJson(response, 200, {
+    valid: true,
+    discountAmount: Number(result.discount.toFixed(2)),
+    coupon: { id: result.coupon.id, code: result.coupon.code, discountType: result.coupon.discount_type, discountValue: Number(result.coupon.discount_value) }
+  });
+}
+
+async function userStatistics(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const stats = await getUserStatistics(user.id);
+  sendJson(response, 200, { statistics: stats });
+}
+
+async function recentOrders(request, response) {
+  const user = await requireUser(request, response); if (!user) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const limit = Math.min(20, Math.max(1, parseInt(url.searchParams.get('limit') || '5', 10)));
+  const { rows } = await pool.query(
+    `SELECT id FROM orders WHERE user_id = $1 ORDER BY created_at DESC NULLS LAST LIMIT $2`,
+    [user.id, limit]
+  );
+  const orders = [];
+  for (const r of rows) {
+    const o = await orderWithItems(r.id);
+    if (o) orders.push(o);
+  }
+  sendJson(response, 200, { orders });
 }
 
 // ==========================================
@@ -2005,6 +2404,19 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && request.url.startsWith('/api/balance/history')) return await balanceHistory(request, response);
     if (request.method === 'POST' && request.url === '/api/balance/topup') return await balanceTopup(request, response);
 
+    // Profile Dashboard API
+    if (request.method === 'GET' && request.url === '/api/membership') return await membershipInfo(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/coupons')) return await userCoupons(request, response);
+    if (request.method === 'POST' && request.url === '/api/coupons/validate') return await validateCouponEndpoint(request, response);
+    if (request.method === 'GET' && request.url === '/api/statistics') return await userStatistics(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/orders/recent')) return await recentOrders(request, response);
+
+    // Admin coupon management
+    if (request.method === 'GET' && request.url === '/api/admin/coupons') return await adminListCoupons(request, response);
+    if (request.method === 'POST' && request.url === '/api/admin/coupons') return await adminCreateCoupon(request, response);
+    if (request.method === 'POST' && request.url === '/api/admin/coupons/assign') return await adminAssignCoupon(request, response);
+    if (request.method === 'DELETE' && /^\/api\/admin\/coupons\/[^/]+$/.test(request.url)) return await adminDeleteCoupon(request, response, decodeURIComponent(request.url.split('/').pop()));
+
     // Cart API
     if (request.method === 'GET' && request.url === '/api/cart') return await cartGet(request, response);
     if (request.method === 'POST' && request.url === '/api/cart/items') return await cartAddItem(request, response);
@@ -2057,6 +2469,7 @@ const server = http.createServer(async (request, response) => {
     await admin.ensureAdminSchema(pool);
     // Let admin routes broadcast real-time state updates (e.g. deposit approvals)
     if (admin.setSsePush) admin.setSsePush(ssePushState);
+    if (admin.setMembershipRecalc) admin.setMembershipRecalc(recalcMembership);
     console.log('PostgreSQL connection successful.');
   } catch (error) {
     console.error(`[Warn] PostgreSQL connection failed. Details: ${error.message}`);
