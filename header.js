@@ -50,6 +50,9 @@
     menu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>`,
     logout: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>`,
     chevron: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>`,
+    caret: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`,
+    orders: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6a1 1 0 0 1 1 1v1h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2V3a1 1 0 0 1 1-1Z"/><path d="M9 4h6"/><path d="M8 11h8M8 15h5"/></svg>`,
+    settings: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>`,
   };
 
   function h(html) {
@@ -71,6 +74,32 @@
     const d = Math.floor(h / 24);
     if (d < 30) return `${d} gün`;
     return String(date).slice(0, 10);
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  /* Resolve the authenticated user's display name with a strict fallback
+     priority: username -> displayName -> firstName -> email prefix -> name.
+     Never returns the placeholder "User". */
+  function userDisplayName() {
+    const u = currentUser || {};
+    const emailPrefix = u.email ? String(u.email).split('@')[0] : '';
+    const name = u.username || u.displayName || u.firstName || emailPrefix || u.name;
+    const clean = String(name == null ? '' : name).trim();
+    return clean || 'İstifadəçi';
+  }
+
+  /* Build avatar initials from real name parts when available. */
+  function userInitials() {
+    const u = currentUser || {};
+    const base = (u.firstName && u.lastName) ? `${u.firstName} ${u.lastName}` : userDisplayName();
+    const parts = String(base).trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return (parts[0] || 'Z').slice(0, 2).toUpperCase();
   }
 
   /* =====================================================================
@@ -255,12 +284,13 @@
               ${ICONS.user}
               <span>Login</span>
             </button>
-            <div class="user-chip ${currentUser ? '' : 'z-hidden'}" id="ztopupUserChip">
-              <a href="${CONFIG.profilePage}" class="user-avatar-link">
-                <span class="user-avatar" id="ztopupUserAvatar">Z</span>
-              </a>
-              <a href="${CONFIG.profilePage}" class="user-name" id="ztopupUserName">User</a>
-              <button class="logout" id="ztopupLogoutBtn">Çıxış</button>
+            <div class="z-action-wrap z-profile-wrap ${currentUser ? '' : 'z-hidden'}" id="ztopupUserChip">
+              <button class="z-profile-chip ${openDropdown === 'profile' ? 'z-open' : ''} ${state.loading ? 'z-loading' : ''}" id="ztopupUserChipBtn" type="button" aria-haspopup="menu" aria-expanded="${openDropdown === 'profile' ? 'true' : 'false'}" aria-label="Hesab menyusu">
+                <span class="z-profile-avatar" id="ztopupUserAvatar">${currentUser ? esc(userInitials()) : 'Z'}</span>
+                <span class="z-profile-name" id="ztopupUserName">${currentUser ? esc(userDisplayName()) : ''}</span>
+                <span class="z-profile-caret">${ICONS.caret}</span>
+              </button>
+              ${openDropdown === 'profile' ? renderProfileDropdown() : ''}
             </div>
             ${userActionBar}
             <button class="z-burger" id="ztopupBurger" type="button" aria-label="Menyu" aria-expanded="${mobileMenuOpen ? 'true' : 'false'}">
@@ -282,9 +312,9 @@
 
     const account = currentUser
       ? `<div class="z-drawer-user">
-           <span class="z-drawer-avatar" id="ztopupDrawerAvatar">${(currentUser.name || 'U').slice(0,1).toUpperCase()}</span>
+           <span class="z-drawer-avatar" id="ztopupDrawerAvatar">${esc(userInitials())}</span>
            <div class="z-drawer-user-info">
-             <div class="z-drawer-user-name">${currentUser.name || 'İstifadəçi'}</div>
+             <div class="z-drawer-user-name">${esc(userDisplayName())}</div>
              <div class="z-drawer-balance">${currencySymbol}${formatMoney(state.balance)}</div>
            </div>
          </div>
@@ -307,6 +337,38 @@
         <div class="z-drawer-account">${account}</div>
       </aside>
     `;
+  }
+
+  function renderProfileDropdown() {
+    const items = [
+      { label: 'Profilim', href: CONFIG.profilePage, icon: ICONS.user },
+      { label: 'Sifarişlərim', href: CONFIG.profilePage, icon: ICONS.orders },
+      { label: 'Balansım', href: CONFIG.balanceTopup, icon: ICONS.wallet },
+      { label: 'Parametrlər', href: CONFIG.profilePage, icon: ICONS.settings },
+    ];
+    const rows = items.map((it) => `
+      <a href="${it.href}" class="z-menu-item" role="menuitem">
+        <span class="z-menu-icon">${it.icon}</span>
+        <span class="z-menu-label">${it.label}</span>
+        <span class="z-menu-chevron">${ICONS.chevron}</span>
+      </a>
+    `).join('');
+    return `<div class="z-dropdown z-dropdown-profile" role="menu" aria-label="Hesab menyusu">
+      <div class="z-menu-id">
+        <span class="z-menu-avatar">${esc(userInitials())}</span>
+        <div class="z-menu-id-info">
+          <div class="z-menu-id-name">${esc(userDisplayName())}</div>
+          <div class="z-menu-id-balance">${currencySymbol}${formatMoney(state.balance)}</div>
+        </div>
+      </div>
+      <div class="z-menu-list">${rows}</div>
+      <div class="z-menu-foot">
+        <button class="z-menu-item z-menu-logout" id="ztopupMenuLogout" type="button" role="menuitem">
+          <span class="z-menu-icon">${ICONS.logout}</span>
+          <span class="z-menu-label">Çıxış</span>
+        </button>
+      </div>
+    </div>`;
   }
 
   function renderCartDropdown() {
@@ -400,11 +462,13 @@
   function bindHeader() {
     const cartBtn = document.getElementById('ztopupCartBtn');
     const msgBtn = document.getElementById('ztopupMsgBtn');
-    const logoutBtn = document.getElementById('ztopupLogoutBtn');
+    const chipBtn = document.getElementById('ztopupUserChipBtn');
+    const menuLogout = document.getElementById('ztopupMenuLogout');
     const loginBtn = document.getElementById('ztopupLoginBtn');
     if (cartBtn) cartBtn.addEventListener('click', (e) => toggleDropdown(e, 'cart'));
     if (msgBtn) msgBtn.addEventListener('click', (e) => toggleDropdown(e, 'messages'));
-    if (logoutBtn) logoutBtn.addEventListener('click', logout);
+    if (chipBtn) chipBtn.addEventListener('click', (e) => toggleDropdown(e, 'profile'));
+    if (menuLogout) menuLogout.addEventListener('click', (e) => { e.stopPropagation(); logout(); });
     if (loginBtn) loginBtn.addEventListener('click', () => openLogin());
 
     // Mobile drawer
@@ -611,7 +675,7 @@
       background: linear-gradient(135deg, var(--z-gold), var(--z-gold-2));
       color: #120a00; box-shadow: var(--z-gold-glow);
     }
-    .ztopup-header .login, .ztopup-header .user-chip {
+    .ztopup-header .login {
       display: flex; align-items: center; gap: 8px;
       border: 1px solid rgba(255,179,0,.48); border-radius: 10px;
       padding: 9px 14px;
@@ -623,18 +687,83 @@
       text-decoration: none;
     }
     .ztopup-header .login:hover { transform: translateY(-1px); box-shadow: var(--z-gold-glow); }
-    .ztopup-header .login svg, .ztopup-header .user-chip svg { width: 17px; height: 17px; }
-    .ztopup-header .user-chip { border-color: rgba(0,200,255,.32); background: rgba(0,200,255,.08); color: #fff; box-shadow: var(--z-blue-glow); }
-    .ztopup-header .user-avatar-link { text-decoration: none; }
-    .ztopup-header .user-avatar {
-      width: 28px; height: 28px; border-radius: 50%;
-      display: grid; place-items: center;
-      background: linear-gradient(135deg, var(--z-blue), var(--z-purple));
-      color: #02020a; font-size: 12px; font-weight: 800;
+    .ztopup-header .login svg { width: 17px; height: 17px; }
+
+    /* ===== Premium user identity chip ===== */
+    .ztopup-header .z-profile-wrap { position: relative; }
+    .ztopup-header .z-profile-chip {
+      display: flex; align-items: center; gap: 9px;
+      max-width: 220px;
+      border: 1px solid rgba(0,200,255,.30); border-radius: 14px;
+      padding: 6px 10px 6px 6px;
+      background: linear-gradient(135deg, rgba(0,200,255,.12), rgba(138,46,255,.08));
+      box-shadow: 0 8px 26px rgba(0,200,255,.14);
+      cursor: pointer; transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease, background .22s ease;
+      font-family: 'Rajdhani', sans-serif;
     }
-    .ztopup-header .user-name { color: #fff; text-decoration: none; font-weight: 800; }
-    .ztopup-header .user-name:hover { color: var(--z-gold); }
-    .ztopup-header .logout { border: 0; color: var(--z-gold); background: transparent; cursor: pointer; font-weight: 800; font-size: 13px; }
+    .ztopup-header .z-profile-chip:hover { transform: translateY(-1px); border-color: rgba(0,200,255,.6); box-shadow: var(--z-blue-glow); }
+    .ztopup-header .z-profile-chip:active { transform: translateY(0); }
+    .ztopup-header .z-profile-chip.z-open { border-color: rgba(255,179,0,.55); background: rgba(255,179,0,.10); box-shadow: var(--z-gold-glow); }
+    .ztopup-header .z-profile-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: grid; place-items: center; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--z-blue), var(--z-purple));
+      color: #02020a; font-size: 12px; font-weight: 900; letter-spacing: .02em;
+      box-shadow: inset 0 0 0 2px rgba(255,255,255,.12);
+    }
+    .ztopup-header .z-profile-name {
+      color: #fff; font-size: 14px; font-weight: 800; letter-spacing: .01em;
+      max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ztopup-header .z-profile-caret { display: grid; place-items: center; color: rgba(255,255,255,.55); transition: transform .22s ease, color .22s ease; }
+    .ztopup-header .z-profile-caret svg { width: 15px; height: 15px; }
+    .ztopup-header .z-profile-chip:hover .z-profile-caret { color: #fff; }
+    .ztopup-header .z-profile-chip.z-open .z-profile-caret { transform: rotate(180deg); color: var(--z-gold); }
+    /* Loading shimmer state */
+    .ztopup-header .z-profile-chip.z-loading .z-profile-name {
+      color: transparent; border-radius: 6px; min-width: 70px;
+      background: linear-gradient(90deg, rgba(255,255,255,.08) 25%, rgba(255,255,255,.18) 37%, rgba(255,255,255,.08) 63%);
+      background-size: 400% 100%; animation: z-shimmer 1.3s ease infinite;
+    }
+    @keyframes z-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+    /* ===== Profile dropdown menu ===== */
+    .ztopup-header .z-dropdown-profile { width: min(90vw, 280px); }
+    .ztopup-header .z-menu-id {
+      display: flex; align-items: center; gap: 12px;
+      padding: 16px; border-bottom: 1px solid rgba(255,255,255,.08);
+      background: linear-gradient(135deg, rgba(0,200,255,.08), rgba(138,46,255,.06));
+    }
+    .ztopup-header .z-menu-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      display: grid; place-items: center; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--z-blue), var(--z-purple));
+      color: #02020a; font-size: 16px; font-weight: 900;
+      box-shadow: inset 0 0 0 2px rgba(255,255,255,.14);
+    }
+    .ztopup-header .z-menu-id-info { min-width: 0; }
+    .ztopup-header .z-menu-id-name { font-size: 15px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ztopup-header .z-menu-id-balance { font-family: 'Orbitron', sans-serif; font-size: 14px; font-weight: 900; color: var(--z-gold); margin-top: 2px; }
+    .ztopup-header .z-menu-list { padding: 8px; }
+    .ztopup-header .z-menu-foot { padding: 8px; border-top: 1px solid rgba(255,255,255,.08); }
+    .ztopup-header .z-menu-item {
+      width: 100%;
+      display: flex; align-items: center; gap: 12px;
+      padding: 11px 12px; border-radius: 12px;
+      border: 0; background: transparent; cursor: pointer;
+      color: rgba(255,255,255,.82); text-decoration: none;
+      font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700;
+      transition: background .18s ease, color .18s ease;
+    }
+    .ztopup-header .z-menu-item:hover { background: rgba(255,179,0,.10); color: var(--z-gold); }
+    .ztopup-header .z-menu-icon { display: grid; place-items: center; width: 20px; flex-shrink: 0; color: inherit; }
+    .ztopup-header .z-menu-icon svg { width: 18px; height: 18px; }
+    .ztopup-header .z-menu-label { flex: 1; text-align: left; }
+    .ztopup-header .z-menu-chevron { display: grid; place-items: center; color: rgba(255,255,255,.25); transition: transform .18s ease, color .18s ease; }
+    .ztopup-header .z-menu-chevron svg { width: 14px; height: 14px; }
+    .ztopup-header .z-menu-item:hover .z-menu-chevron { color: var(--z-gold); transform: translateX(2px); }
+    .ztopup-header .z-menu-logout { color: #ff7b7b; }
+    .ztopup-header .z-menu-logout:hover { background: rgba(255,80,80,.12); color: #ff5b5b; }
     .ztopup-header .z-hidden { display: none !important; }
 
     /* Hamburger button (hidden on desktop) */
@@ -936,7 +1065,7 @@
       }
       .ztopup-header .nav,
       .ztopup-header .login,
-      .ztopup-header .user-chip,
+      .ztopup-header .z-profile-wrap,
       .ztopup-header .z-user-bar { display: none !important; }
       .ztopup-header .z-burger { display: inline-flex; }
       .ztopup-header .header-actions { gap: 10px; }
