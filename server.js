@@ -11,6 +11,19 @@ if (process.env.__INJECT_DATABASE_URL && !process.env.DATABASE_URL) {
 }
 
 // ==========================================
+// AUDIT LOGGER
+// ==========================================
+function auditLog(event, payload = {}) {
+  const entry = {
+    ts: new Date().toISOString(),
+    event,
+    ...payload
+  };
+  // Log to stdout; production log aggregators (e.g. Render, Datadog) can capture this.
+  console.log('[AUDIT]', JSON.stringify(entry));
+}
+
+// ==========================================
 // TRANSACTIONS AND AVATAR REQUESTS (NEW)
 // ==========================================
 
@@ -101,33 +114,48 @@ const jwt = require('jsonwebtoken');
 
 const PORT = process.env.PORT || 8091;
 const ROOT = __dirname;
-const JWT_SECRET = process.env.JWT_SECRET || 'zelix-dev-secret-change';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET is not set. Set a long random secret (e.g. node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))") and restart the server.');
+  process.exit(1);
+}
 
 // Prefer DATABASE_URL if provided (e.g., on Render). Fall back to discrete vars locally.
-let pool;
-if (process.env.DATABASE_URL) {
-  pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    // Many managed Postgres providers (including Render External URL) require SSL.
-    // Allow opting out via DB_SSL=false for internal connections.
-    ssl: (process.env.DB_SSL === 'true' || process.env.PGSSLMODE === 'require') ? { rejectUnauthorized: false } : undefined,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000
-  });
-} else {
-  pool = new Pool({
-    host: process.env.DB_HOST || 'localhost',
+function buildPoolConfig() {
+  const isLocalhost = (host) => !host || host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  if (process.env.DATABASE_URL) {
+    let ssl = undefined;
+    // Render (and most managed Postgres providers) require SSL. Enable it automatically
+    // unless explicitly disabled with DB_SSL=false. Use rejectUnauthorized:false for providers
+    // that use self-signed certificates.
+    if (process.env.DB_SSL !== 'false') {
+      ssl = { rejectUnauthorized: false };
+    }
+    return {
+      connectionString: process.env.DATABASE_URL,
+      ssl,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000
+    };
+  }
+  const host = process.env.DB_HOST || 'localhost';
+  const ssl = (!isLocalhost(host) || process.env.DB_SSL === 'true' || process.env.PGSSLMODE === 'require')
+    ? { rejectUnauthorized: false }
+    : undefined;
+  return {
+    host,
     port: Number(process.env.DB_PORT || 5432),
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'zelix_topup',
-    ssl: (process.env.DB_SSL === 'true' || process.env.PGSSLMODE === 'require') ? { rejectUnauthorized: false } : undefined,
+    ssl,
     max: 10,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000
-  });
+    connectionTimeoutMillis: 10000
+  };
 }
+const pool = new Pool(buildPoolConfig());
 
 // Additional schema (base tables + products, order_status, extra order fields)
 async function dbEnsureSchema() {
@@ -890,6 +918,7 @@ async function createOrderInternal({ user, items, playerId, contactEmail, custom
       'INSERT INTO notifications (id, user_id, title, message, type) VALUES ($1,$2,$3,$4,$5)',
       [crypto.randomUUID(), user.id, 'Sifariş yaradıldı', `${orderItems[0].title} (${subtotal.toFixed(2)} AZN) sifarişiniz qəbul edildi.`, 'purchase']
     );
+    auditLog('order_created', { orderId, userId: user.id, amount: subtotal, items: orderItems.map(i => ({ productId: i.productId, title: i.title, quantity: i.quantity, total: i.totalPrice })) });
     await client.query('COMMIT');
     ssePushState(user.id);
     return { ok: true, order: { id: orderId, status: 'pending', statusCode: 'pending', totalAmount: subtotal, items: orderItems } };
@@ -996,6 +1025,7 @@ async function adminUpdateOrderStatus(request, response) {
     rejected: 'Sifarişiniz rədd edildi.'
   };
   await dbCreateNotification(order.user_id, statusMessages[newStatus] || 'Sifariş statusu yeniləndi.', `Sifariş #${orderId} statusu: ${st[0].label}.`, 'purchase');
+  auditLog('order_status_updated', { orderId, oldStatus: order.status_code, newStatus, adminId: admin.id, adminUsername: admin.username });
   const freshOrder = await orderWithItems(orderId);
   sseSend(order.user_id, 'order', { order: freshOrder });
   ssePushState(order.user_id);
@@ -1645,6 +1675,9 @@ async function buildProfile(user) {
 }
 
 async function register(request, response) {
+  if (!rateLimit(rateKey(request, null, 'register'), 5, 60000)) {
+    return sendJson(response, 429, { message: 'Çox sayda qeydiyyat cəhdi. Bir az gözləyin.' });
+  }
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const username = String(body.username || body.userName || '').trim().toLowerCase();
   const firstName = String(body.firstName || body.first_name || body.firstname || body.name || '').trim();
@@ -1685,22 +1718,28 @@ async function register(request, response) {
   const token = crypto.randomBytes(32).toString('hex');
   await dbCreateSession(token, user.id);
   setAuthCookie(response, request, token);
+  auditLog('register_success', { userId: user.id, username, email, ip: rateKey(request, null, 'register').split(':').pop() });
   sendJson(response, 201, { message: 'Qeydiyyat uğurludur.', token, user: sanitizeUser(user) });
 }
 
 async function login(request, response) {
+  if (!rateLimit(rateKey(request, null, 'login'), 10, 60000)) {
+    return sendJson(response, 429, { message: 'Çox sayda giriş cəhdi. Bir az gözləyin.' });
+  }
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const identifier = String(body.identifier || body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
 
   const user = await dbFindUserByIdentifier(identifier);
   if (!user || !verifyPassword(password, user.password_hash)) {
+    auditLog('login_failed', { identifier, ip: rateKey(request, null, 'login').split(':').pop() });
     return sendJson(response, 401, { message: 'Email və ya şifrə yanlışdır.' });
   }
 
   const token = crypto.randomBytes(32).toString('hex');
   await dbCreateSession(token, user.id);
   setAuthCookie(response, request, token);
+  auditLog('login_success', { userId: user.id, ip: rateKey(request, null, 'login').split(':').pop() });
   sendJson(response, 200, { message: 'Giriş uğurludur.', token, user: sanitizeUser(user) });
 }
 
@@ -1720,6 +1759,9 @@ async function currentUser(request, response) {
 
 // JWT-based auth endpoints (new)
 async function authRegister(request, response) {
+  if (!rateLimit(rateKey(request, null, 'register'), 5, 60000)) {
+    return sendJson(response, 429, { message: 'Çox sayda qeydiyyat cəhdi. Bir az gözləyin.' });
+  }
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const username = String(body.username || '').trim().toLowerCase();
   const firstName = String(body.firstName || '').trim();
@@ -1751,19 +1793,27 @@ async function authRegister(request, response) {
   await dbInsertUser(user);
   const token = signJwt(user.id, true);
   setAuthCookie(response, request, token);
+  auditLog('register_success', { userId: user.id, username, email, ip: rateKey(request, null, 'register').split(':').pop() });
   sendJson(response, 201, { message: 'Qeydiyyat uğurludur.', token, user: sanitizeUser(user) });
 }
 
 async function authLogin(request, response) {
+  if (!rateLimit(rateKey(request, null, 'login'), 10, 60000)) {
+    return sendJson(response, 429, { message: 'Çox sayda giriş cəhdi. Bir az gözləyin.' });
+  }
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const identifier = String(body.identifier || body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
   const remember = Boolean(body.remember ?? true);
   const user = await dbFindUserByIdentifier(identifier);
-  if (!user || !verifyPassword(password, user.password_hash)) return sendJson(response, 401, { message: 'Email və ya şifrə yanlışdır.' });
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    auditLog('login_failed', { identifier, ip: rateKey(request, null, 'login').split(':').pop() });
+    return sendJson(response, 401, { message: 'Email və ya şifrə yanlışdır.' });
+  }
   const token = signJwt(user.id, remember);
   const maxAge = remember ? 604800 : 86400;
   setAuthCookie(response, request, token, maxAge);
+  auditLog('login_success', { userId: user.id, ip: rateKey(request, null, 'login').split(':').pop() });
   sendJson(response, 200, { message: 'Giriş uğurludur.', token, user: sanitizeUser(user) });
 }
 
