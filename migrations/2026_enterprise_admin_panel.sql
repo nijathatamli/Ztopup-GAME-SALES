@@ -41,10 +41,15 @@ VALUES
   ('premium-tier', 'Premium', 'premium', 10, 3, '#f1c40f', ARRAY['Maksimum endirim', 'VIP xidmət', 'Öncəlikli sifariş'])
 ON CONFLICT (code) DO NOTHING;
 
-ALTER TABLE users
-  ADD CONSTRAINT IF NOT EXISTS fk_users_membership_tier
-  FOREIGN KEY (membership_level) REFERENCES membership_tiers(code)
-  ON UPDATE CASCADE ON DELETE SET DEFAULT;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_membership_tier') THEN
+    ALTER TABLE users
+      ADD CONSTRAINT fk_users_membership_tier
+      FOREIGN KEY (membership_level) REFERENCES membership_tiers(code)
+      ON UPDATE CASCADE ON DELETE SET DEFAULT;
+  END IF;
+END $$;
 
 -- ============================================================
 -- 3. AUDIT LOGS
@@ -171,81 +176,91 @@ CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active_at);
 -- ============================================================
 -- 11. ADMIN ENHANCEMENTS
 -- ============================================================
-ALTER TABLE admins
-  ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin',
-  ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP NULL,
-  ADD COLUMN IF NOT EXISTS last_login_ip VARCHAR(45) NULL;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'admins') THEN
+    ALTER TABLE admins
+      ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin',
+      ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP NULL,
+      ADD COLUMN IF NOT EXISTS last_login_ip VARCHAR(45) NULL;
+  END IF;
+END $$;
 
-CREATE INDEX IF NOT EXISTS idx_admins_role ON admins(role);
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'admins') THEN
+    CREATE INDEX IF NOT EXISTS idx_admins_role ON admins(role);
+  END IF;
+END $$;
 
 -- ============================================================
 -- 12. FOREIGN KEY FIXUPS
 -- ============================================================
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_orders_user'
-    ) THEN
-        ALTER TABLE orders ADD CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_orders_user') THEN
+            ALTER TABLE orders ADD CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_orders_product'
-    ) THEN
-        ALTER TABLE orders ADD CONSTRAINT fk_orders_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_orders_product') THEN
+            ALTER TABLE orders ADD CONSTRAINT fk_orders_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_products_category'
-    ) THEN
-        ALTER TABLE products ADD CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'categories') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_products_category') THEN
+            ALTER TABLE products ADD CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_deposit_requests_user'
-    ) THEN
-        ALTER TABLE deposit_requests ADD CONSTRAINT fk_deposit_requests_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'deposit_requests') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_deposit_requests_user') THEN
+            ALTER TABLE deposit_requests ADD CONSTRAINT fk_deposit_requests_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_balance_requests_user'
-    ) THEN
-        ALTER TABLE balance_requests ADD CONSTRAINT fk_balance_requests_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'balance_requests') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_balance_requests_user') THEN
+            ALTER TABLE balance_requests ADD CONSTRAINT fk_balance_requests_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_avatar_requests_user'
-    ) THEN
-        ALTER TABLE avatar_requests ADD CONSTRAINT fk_avatar_requests_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'avatar_requests') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_avatar_requests_user') THEN
+            ALTER TABLE avatar_requests ADD CONSTRAINT fk_avatar_requests_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_notifications_user'
-    ) THEN
-        ALTER TABLE notifications ADD CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'notifications') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_notifications_user') THEN
+            ALTER TABLE notifications ADD CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_order_items_order'
-    ) THEN
-        ALTER TABLE order_items ADD CONSTRAINT fk_order_items_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_order_items_order') THEN
+            ALTER TABLE order_items ADD CONSTRAINT fk_order_items_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_order_items_product'
-    ) THEN
-        ALTER TABLE order_items ADD CONSTRAINT fk_order_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_order_items_product') THEN
+            ALTER TABLE order_items ADD CONSTRAINT fk_order_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_transactions_user'
-    ) THEN
-        ALTER TABLE transactions ADD CONSTRAINT fk_transactions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'transactions') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_transactions_user') THEN
+            ALTER TABLE transactions ADD CONSTRAINT fk_transactions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_user_coupons_user'
-    ) THEN
-        ALTER TABLE user_coupons ADD CONSTRAINT fk_user_coupons_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'user_coupons') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_user_coupons_user') THEN
+            ALTER TABLE user_coupons ADD CONSTRAINT fk_user_coupons_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_user_coupons_coupon'
-    ) THEN
-        ALTER TABLE user_coupons ADD CONSTRAINT fk_user_coupons_coupon FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE CASCADE;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'user_coupons') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'coupons') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_user_coupons_coupon') THEN
+            ALTER TABLE user_coupons ADD CONSTRAINT fk_user_coupons_coupon FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE CASCADE;
+        END IF;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_coupons_order'
-    ) THEN
-        ALTER TABLE orders ADD CONSTRAINT fk_coupons_order FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE SET NULL;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'coupons') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_coupons_order') THEN
+            ALTER TABLE orders ADD CONSTRAINT fk_coupons_order FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE SET NULL;
+        END IF;
     END IF;
 END $$;

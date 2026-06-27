@@ -211,6 +211,34 @@ function buildPoolConfig() {
 }
 const pool = new Pool(buildPoolConfig());
 
+async function runMigrations() {
+  const migrationsDir = path.join(__dirname, 'migrations');
+  // Explicit order is required because some migrations add columns to tables
+  // created by earlier migrations (e.g. enterprise_admin_panel alters coupons
+  // after profile_dashboard_membership creates them).
+  const orderedFiles = [
+    '2026_deposit_system.sql',
+    '2026_profile_dashboard_membership.sql',
+    '2026_enterprise_admin_panel.sql',
+    '2026_schema_audit_fix.sql'
+  ];
+  for (const file of orderedFiles) {
+    const filePath = path.join(migrationsDir, file);
+    console.log(`[Migration] Running ${file}...`);
+    const sql = await fs.readFile(filePath, 'utf8');
+    try {
+      await pool.query(sql);
+      console.log(`[Migration] ${file} completed.`);
+    } catch (err) {
+      console.error(`[Migration] ${file} failed: ${err.message}`);
+      if (err.position) {
+        console.error(`[Migration] Error position: ${err.position}`);
+      }
+      throw new Error(`Migration ${file} failed: ${err.message}\nFailed SQL: ${err.query || sql.slice(0, 500)}`);
+    }
+  }
+}
+
 // Additional schema (base tables + products, order_status, extra order fields)
 async function dbEnsureSchema() {
   // Base tables (mirrors schema.sql) to support remote DBs without init scripts
@@ -227,6 +255,13 @@ async function dbEnsureSchema() {
   )`);
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_url TEXT');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT \'active\'');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS membership_level TEXT NOT NULL DEFAULT \'standard\'');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(40)');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_ip VARCHAR(100)');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP');
 
   await pool.query(`CREATE TABLE IF NOT EXISTS sessions (
     token VARCHAR(64) PRIMARY KEY,
@@ -420,7 +455,6 @@ async function dbEnsureSchema() {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_products_sort ON products(category_id, sort_order)');
 
   await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS custom_fields JSONB');
-  await pool.query('ALTER TABLE order_items ADD COLUMN IF NOT EXISTS custom_fields JSONB');
 
   await pool.query(`CREATE TABLE IF NOT EXISTS order_status (
     id SERIAL PRIMARY KEY,
@@ -442,10 +476,12 @@ async function dbEnsureSchema() {
     quantity INTEGER NOT NULL DEFAULT 1,
     unit_price DECIMAL(10,2) NOT NULL,
     total_price DECIMAL(10,2) NOT NULL,
+    custom_fields JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items(product_id)');
+  await pool.query('ALTER TABLE order_items ADD COLUMN IF NOT EXISTS custom_fields JSONB');
 
   // Seed order statuses (pending, processing, completed, rejected)
   const { rows: st } = await pool.query('SELECT COUNT(*)::int AS c FROM order_status');
@@ -3002,25 +3038,30 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-// Try connecting to PostgreSQL, but start HTTP server regardless so static files work
+// Initialize PostgreSQL schema and migrations, then start the server.
+// If database initialization fails, the process exits so Render does not
+// serve a broken application in static-only mode.
 (async () => {
   try {
     await pool.query('SELECT NOW()');
     await dbEnsureSchema();
     await admin.ensureAdminSchema(pool);
+    await runMigrations();
     // Let admin routes broadcast real-time state updates (e.g. deposit approvals)
     if (admin.setSsePush) admin.setSsePush(ssePushState);
     if (admin.setMembershipRecalc) admin.setMembershipRecalc(recalcMembership);
-    console.log('PostgreSQL connection successful.');
+    console.log('PostgreSQL connection and schema initialization successful.');
   } catch (error) {
-    console.error(`[Warn] PostgreSQL connection failed. Details: ${error.message}`);
-    console.error('Starting server in static-only mode; APIs may return errors until DB is available.');
-  } finally {
-    server.listen(PORT, () => {
-      console.log(`ZELIX TOPUP running at http://localhost:${PORT}`);
-    });
-    // Periodically clean up expired sessions (every 1 hour)
-    setInterval(() => { dbCleanupSessions().catch(() => {}); }, 60 * 60 * 1000);
-    dbCleanupSessions().catch(() => {});
+    console.error('[FATAL] PostgreSQL schema initialization failed.');
+    console.error(`[FATAL] Details: ${error.message}`);
+    console.error(error.stack);
+    process.exit(1);
   }
+
+  server.listen(PORT, () => {
+    console.log(`ZELIX TOPUP running at http://localhost:${PORT}`);
+  });
+  // Periodically clean up expired sessions (every 1 hour)
+  setInterval(() => { dbCleanupSessions().catch(() => {}); }, 60 * 60 * 1000);
+  dbCleanupSessions().catch(() => {});
 })();
