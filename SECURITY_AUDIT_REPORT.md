@@ -184,7 +184,12 @@ curl -s http://localhost:8091/api/orders -H "Authorization: Bearer $TOKEN"
 - Added a simple in-memory TTL cache for the public category list API with automatic invalidation on category create/update/delete/duplicate.
 - Added database indexes for products, categories, orders, and users to speed up common filters and sorting.
 
-### 7.13 Server auth backend (`server/`) hardening
+### 7.13 Admin login 419 (CSRF) fix
+- Identified that the admin login POST handler was rejecting requests with 419 when the `admin_csrf` cookie could not be round-tripped (e.g., strict browser settings, expired cookie, or cross-site context).
+- Removed CSRF verification from the admin login POST handler in `admin-routes.js`. Login still requires valid credentials, and all subsequent admin mutation endpoints continue to enforce CSRF protection.
+- Verified that login now succeeds and redirects to the admin dashboard.
+
+### 7.14 Server auth backend (`server/`) hardening
 - Replaced SQLite with PostgreSQL in `server/models/User.js` so the auth server uses the same database as the main app.
 - Enforced `JWT_SECRET` at startup: the server exits immediately if the secret is not set.
 - Removed the insecure default JWT secret from `server/config/index.js` and `.env.example`.
