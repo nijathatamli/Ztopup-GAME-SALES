@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 require('dotenv').config();
 const admin = require('./admin-routes');
+const { auditLog: dbAuditLog, extractClientIp } = require('./lib/audit');
 // Allow injecting DATABASE_URL at runtime via process.env.__INJECT_DATABASE_URL
 if (process.env.__INJECT_DATABASE_URL && !process.env.DATABASE_URL) {
   process.env.DATABASE_URL = process.env.__INJECT_DATABASE_URL;
@@ -11,16 +12,69 @@ if (process.env.__INJECT_DATABASE_URL && !process.env.DATABASE_URL) {
 }
 
 // ==========================================
+// SIMPLE IN-MEMORY CACHE (TTL)
+// ==========================================
+const cache = new Map();
+function cacheGet(key, ttlMs = 30000) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > ttlMs) { cache.delete(key); return null; }
+  return entry.value;
+}
+function cacheSet(key, value) { cache.set(key, { value, ts: Date.now() }); }
+function cacheInvalidate(pattern) {
+  for (const key of cache.keys()) { if (key.includes(pattern)) cache.delete(key); }
+}
+
+// ==========================================
+// HEALTH CHECK
+// ==========================================
+async function healthCheck(request, response) {
+  try {
+    const { rows: dbTime } = await pool.query('SELECT NOW() AS t');
+    const requiredColumns = [
+      { table: 'users', columns: ['status', 'membership_level', 'deleted_at', 'updated_at'] },
+      { table: 'admins', columns: ['active', 'updated_at', 'role'] },
+      { table: 'products', columns: ['is_active', 'hidden', 'updated_by', 'updated_at'] },
+      { table: 'orders', columns: ['status_code', 'total_amount', 'rejection_reason', 'refunded_amount'] },
+      { table: 'coupons', columns: ['active', 'vip_only', 'premium_only'] },
+      { table: 'categories', columns: ['status', 'is_active', 'display_order', 'featured', 'popular'] }
+    ];
+    const missing = [];
+    for (const { table, columns } of requiredColumns) {
+      const { rows } = await pool.query(
+        'SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 AND column_name = ANY($3)',
+        ['public', table, columns]
+      );
+      const found = new Set(rows.map(r => r.column_name));
+      for (const col of columns) {
+        if (!found.has(col)) missing.push(`${table}.${col}`);
+      }
+    }
+    if (missing.length) {
+      return sendJson(response, 503, { success: false, status: 'unhealthy', database: 'connected', missingColumns: missing });
+    }
+    sendJson(response, 200, { success: true, status: 'healthy', database: 'connected', time: dbTime[0].t });
+  } catch (e) {
+    sendJson(response, 503, { success: false, status: 'unhealthy', database: 'error', error: e.message });
+  }
+}
+
+// ==========================================
 // AUDIT LOGGER
 // ==========================================
 function auditLog(event, payload = {}) {
-  const entry = {
-    ts: new Date().toISOString(),
-    event,
-    ...payload
-  };
-  // Log to stdout; production log aggregators (e.g. Render, Datadog) can capture this.
-  console.log('[AUDIT]', JSON.stringify(entry));
+  const { req, ...rest } = payload;
+  dbAuditLog(pool, {
+    action: event,
+    admin: payload.admin || null,
+    req,
+    targetType: payload.targetType || null,
+    targetId: payload.targetId || null,
+    oldValue: payload.oldValue || null,
+    newValue: payload.newValue || null,
+    meta: Object.keys(rest).length ? rest : null
+  });
 }
 
 // ==========================================
@@ -546,6 +600,9 @@ async function categoriesList(request, response) {
   const slug = (url.searchParams.get('slug') || '').trim().toLowerCase();
   const featured = url.searchParams.get('featured') === 'true';
   const popular = url.searchParams.get('popular') === 'true';
+  const cacheKey = `categories:${slug}:${featured}:${popular}`;
+  const cached = cacheGet(cacheKey, 30000);
+  if (cached) return sendJson(response, 200, cached);
   let sql = 'SELECT * FROM categories';
   const params = [];
   const conds = [];
@@ -556,7 +613,9 @@ async function categoriesList(request, response) {
   if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
   sql += ' ORDER BY display_order ASC, featured DESC, popular DESC, name ASC';
   const { rows } = await pool.query(sql, params);
-  sendJson(response, 200, { categories: rows });
+  const result = { categories: rows };
+  cacheSet(cacheKey, result);
+  sendJson(response, 200, result);
 }
 
 async function categoryGet(request, response, slug) {
@@ -721,6 +780,7 @@ async function adminCreateCategory(request, response) {
   }
   const { rows } = await pool.query('SELECT * FROM categories WHERE id=$1', [id]);
   const { rows: fields } = await pool.query('SELECT * FROM category_fields WHERE category_id = $1 ORDER BY sort_order', [id]);
+  cacheInvalidate('categories:');
   sendJson(response, 201, { category: { ...rows[0], fields } });
 }
 
@@ -775,6 +835,7 @@ async function adminUpdateCategory(request, response) {
   }
   const { rows } = await pool.query('SELECT * FROM categories WHERE id=$1', [id]);
   const { rows: fields } = await pool.query('SELECT * FROM category_fields WHERE category_id = $1 ORDER BY sort_order', [id]);
+  cacheInvalidate('categories:');
   sendJson(response, 200, { category: { ...rows[0], fields } });
 }
 
@@ -786,6 +847,7 @@ async function adminDeleteCategory(request, response) {
   await pool.query('DELETE FROM category_fields WHERE category_id = $1', [id]);
   await pool.query('UPDATE products SET category_id = NULL WHERE category_id = $1', [id]);
   await pool.query('DELETE FROM categories WHERE id = $1', [id]);
+  cacheInvalidate('categories:');
   sendJson(response, 200, { message: 'Silindi' });
 }
 
@@ -841,6 +903,7 @@ async function adminDuplicateCategory(request, response) {
   }
   const { rows } = await pool.query('SELECT * FROM categories WHERE id=$1', [newId]);
   const { rows: fields } = await pool.query('SELECT * FROM category_fields WHERE category_id = $1 ORDER BY sort_order', [newId]);
+  cacheInvalidate('categories:');
   sendJson(response, 201, { category: { ...rows[0], fields } });
 }
 
@@ -1005,31 +1068,61 @@ async function adminListOrders(request, response) {
 
 async function adminUpdateOrderStatus(request, response) {
   const admin = await requireAdmin(request, response); if (!admin) return;
+  if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const orderId = String(body.orderId || '').trim();
   const newStatus = String(body.status || '').trim().toLowerCase();
+  const rejectionReason = String(body.rejectionReason || '').trim();
+  const refund = Boolean(body.refund);
+  const adminNotes = String(body.adminNotes || '').trim();
   const allowed = ['pending', 'processing', 'completed', 'rejected'];
   if (!orderId || !allowed.includes(newStatus)) return sendJson(response, 400, { message: 'Yanlış status.' });
+  if (newStatus === 'rejected' && !rejectionReason) return sendJson(response, 400, { message: 'Rədd səbəbi tələb olunur.' });
   const { rows: st } = await pool.query('SELECT id, label FROM order_status WHERE code = $1 LIMIT 1', [newStatus]);
   if (!st.length) return sendJson(response, 400, { message: 'Status tapılmadı.' });
-  const { rows: orderRows } = await pool.query('SELECT user_id, status_code FROM orders WHERE id = $1 LIMIT 1', [orderId]);
-  if (!orderRows.length) return sendJson(response, 404, { message: 'Sifariş tapılmadı.' });
-  const order = orderRows[0];
-  // Valid transitions: pending->processing, processing->completed, processing->rejected, any->processing (admin override)
-  await pool.query('UPDATE orders SET status_code = $1, status_id = $2, status = $3, updated_at = NOW() WHERE id = $4', [newStatus, st[0].id, st[0].label, orderId]);
-  // Notify user
-  const statusMessages = {
-    pending: 'Sifarişiniz qəbul edildi.',
-    processing: 'Sifarişiniz emal olunur.',
-    completed: 'Sifarişiniz tamamlandı.',
-    rejected: 'Sifarişiniz rədd edildi.'
-  };
-  await dbCreateNotification(order.user_id, statusMessages[newStatus] || 'Sifariş statusu yeniləndi.', `Sifariş #${orderId} statusu: ${st[0].label}.`, 'purchase');
-  auditLog('order_status_updated', { orderId, oldStatus: order.status_code, newStatus, adminId: admin.id, adminUsername: admin.username });
-  const freshOrder = await orderWithItems(orderId);
-  sseSend(order.user_id, 'order', { order: freshOrder });
-  ssePushState(order.user_id);
-  sendJson(response, 200, { message: 'Status yeniləndi.', order: freshOrder });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: orderRows } = await client.query('SELECT * FROM orders WHERE id = $1 LIMIT 1 FOR UPDATE', [orderId]);
+    if (!orderRows.length) throw new Error('Sifariş tapılmadı.');
+    const order = orderRows[0];
+    const oldStatus = order.status_code;
+    const userId = order.user_id;
+    const totalAmount = Number(order.total_amount || 0);
+    let refundedAmount = 0;
+    if (newStatus === 'rejected' && refund && totalAmount > 0) {
+      await client.query('UPDATE users SET balance = balance + $1 WHERE id = $2', [totalAmount, userId]);
+      await client.query(
+        'INSERT INTO transactions (id, user_id, amount, type, status, ref, category, description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [crypto.randomUUID(), userId, totalAmount, 'credit', 'approved', orderId, 'refund', 'Sifariş rədd edildi, balans qaytarıldı']
+      );
+      refundedAmount = totalAmount;
+    }
+    await client.query(
+      'UPDATE orders SET status_code = $1, status_id = $2, status = $3, rejection_reason = $4, admin_notes = $5, refunded_amount = $6, processed_by = $7, processed_at = NOW(), updated_at = NOW() WHERE id = $8',
+      [newStatus, st[0].id, st[0].label, rejectionReason || null, adminNotes || null, refundedAmount, admin.id, orderId]
+    );
+    await client.query('COMMIT');
+
+    const statusMessages = {
+      pending: 'Sifarişiniz qəbul edildi.',
+      processing: 'Sifarişiniz emal olunur.',
+      completed: 'Sifarişiniz tamamlandı.',
+      rejected: 'Sifarişiniz rədd edildi. Səbəb: ' + (rejectionReason || 'qeyd edilməyib')
+    };
+    await dbCreateNotification(userId, statusMessages[newStatus] || 'Sifariş statusu yeniləndi.', `Sifariş #${orderId} statusu: ${st[0].label}.`, 'purchase');
+    auditLog('order_status_updated', { admin, req: request, targetType: 'order', targetId: orderId, oldValue: { status: oldStatus }, newValue: { status: newStatus, rejectionReason, refund, refundedAmount, adminNotes } });
+    if (refund) recalcMembership(userId).catch(() => {});
+    const freshOrder = await orderWithItems(orderId);
+    sseSend(userId, 'order', { order: freshOrder });
+    ssePushState(userId);
+    sendJson(response, 200, { success: true, message: 'Status yeniləndi.', order: freshOrder });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    sendJson(response, 400, { success: false, message: e.message });
+  } finally {
+    client.release();
+  }
 }
 
 async function adminListCoupons(request, response) {
@@ -1132,6 +1225,370 @@ async function adminListUsers(request, response) {
     const { rows } = await pool.query('SELECT id, username, name, first_name, last_name, email, balance, created_at, is_admin FROM users ORDER BY created_at DESC');
     return sendJson(response, 200, { users: rows });
   }
+}
+// ==========================================
+// ENTERPRISE ADMIN PANEL APIs
+// ==========================================
+
+function parseDateRange(request) {
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const range = url.searchParams.get('range') || 'today'; // today | 7days | 30days | year | custom
+  const now = new Date();
+  let start, end;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  end = new Date(today);
+  end.setHours(23, 59, 59, 999);
+  if (range === 'today') {
+    start = new Date(today);
+  } else if (range === '7days') {
+    start = new Date(today); start.setDate(start.getDate() - 6);
+  } else if (range === '30days') {
+    start = new Date(today); start.setDate(start.getDate() - 29);
+  } else if (range === 'year') {
+    start = new Date(today); start.setMonth(0); start.setDate(1);
+  } else {
+    const s = url.searchParams.get('start');
+    const e = url.searchParams.get('end');
+    start = s ? new Date(s) : new Date(today);
+    end = e ? new Date(new Date(e).setHours(23, 59, 59, 999)) : new Date(end);
+  }
+  return { start, end, range };
+}
+
+async function adminDashboardStats(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const { start, end } = parseDateRange(request);
+  const startIso = start.toISOString();
+  const endIso = end.toISOString();
+
+  const queries = {
+    totalUsers: `SELECT COUNT(*)::int AS c FROM users WHERE deleted_at IS NULL`,
+    newUsersToday: `SELECT COUNT(*)::int AS c FROM users WHERE created_at >= $1 AND created_at <= $2`,
+    onlineUsers: `SELECT COUNT(DISTINCT user_id)::int AS c FROM sessions WHERE last_active_at >= NOW() - INTERVAL '15 minutes'`,
+    totalOrders: `SELECT COUNT(*)::int AS c FROM orders`,
+    todayOrders: `SELECT COUNT(*)::int AS c FROM orders WHERE created_at >= $1 AND created_at <= $2`,
+    pendingOrders: `SELECT COUNT(*)::int AS c FROM orders WHERE status_code = 'pending'`,
+    processingOrders: `SELECT COUNT(*)::int AS c FROM orders WHERE status_code = 'processing'`,
+    completedOrders: `SELECT COUNT(*)::int AS c FROM orders WHERE status_code = 'completed'`,
+    rejectedOrders: `SELECT COUNT(*)::int AS c FROM orders WHERE status_code = 'rejected'`,
+    todayRevenue: `SELECT COALESCE(SUM(total_amount),0)::numeric AS c FROM orders WHERE status_code = 'completed' AND created_at >= $1 AND created_at <= $2`,
+    weeklyRevenue: `SELECT COALESCE(SUM(total_amount),0)::numeric AS c FROM orders WHERE status_code = 'completed' AND created_at >= NOW() - INTERVAL '7 days'`,
+    monthlyRevenue: `SELECT COALESCE(SUM(total_amount),0)::numeric AS c FROM orders WHERE status_code = 'completed' AND created_at >= NOW() - INTERVAL '30 days'`,
+    pendingBalance: `SELECT COUNT(*)::int AS c FROM balance_requests WHERE LOWER(status) = 'pending'`,
+    pendingDeposits: `SELECT COUNT(*)::int AS c FROM deposit_requests WHERE LOWER(status) = 'pending'`,
+    totalRevenue: `SELECT COALESCE(SUM(total_amount),0)::numeric AS c FROM orders WHERE status_code = 'completed'`
+  };
+
+  const params = [startIso, endIso];
+  const result = {};
+  for (const [key, sql] of Object.entries(queries)) {
+    const needsDate = sql.includes('$1');
+    const { rows } = await pool.query(sql, needsDate ? params : []);
+    result[key] = rows[0].c;
+  }
+
+  sendJson(response, 200, { success: true, stats: result, range: { start: startIso, end: endIso } });
+}
+
+async function adminDashboardCharts(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const { start, end } = parseDateRange(request);
+  const startIso = start.toISOString();
+  const endIso = end.toISOString();
+
+  const dailySales = await pool.query(
+    `SELECT DATE(created_at) AS day, COUNT(*)::int AS orders, COALESCE(SUM(total_amount),0)::numeric AS revenue
+     FROM orders WHERE created_at >= $1 AND created_at <= $2
+     GROUP BY DATE(created_at) ORDER BY day`,
+    [startIso, endIso]
+  );
+
+  const monthlyRevenue = await pool.query(
+    `SELECT DATE_TRUNC('month', created_at) AS month, COALESCE(SUM(total_amount),0)::numeric AS revenue
+     FROM orders WHERE status_code = 'completed' AND created_at >= $1 AND created_at <= $2
+     GROUP BY DATE_TRUNC('month', created_at) ORDER BY month`,
+    [startIso, endIso]
+  );
+
+  const newUsers = await pool.query(
+    `SELECT DATE(created_at) AS day, COUNT(*)::int AS users
+     FROM users WHERE created_at >= $1 AND created_at <= $2
+     GROUP BY DATE(created_at) ORDER BY day`,
+    [startIso, endIso]
+  );
+
+  const orderStatusDist = await pool.query(
+    `SELECT status_code, COUNT(*)::int AS count FROM orders
+     WHERE created_at >= $1 AND created_at <= $2
+     GROUP BY status_code`,
+    [startIso, endIso]
+  );
+
+  const topCategories = await pool.query(
+    `SELECT c.name, COUNT(*)::int AS orders, COALESCE(SUM(o.total_amount),0)::numeric AS revenue
+     FROM orders o LEFT JOIN categories c ON c.name = o.game
+     WHERE o.created_at >= $1 AND o.created_at <= $2
+     GROUP BY c.name ORDER BY revenue DESC LIMIT 10`,
+    [startIso, endIso]
+  );
+
+  sendJson(response, 200, {
+    success: true,
+    dailySales: dailySales.rows,
+    monthlyRevenue: monthlyRevenue.rows,
+    newUsers: newUsers.rows,
+    orderStatusDistribution: orderStatusDist.rows,
+    topCategories: topCategories.rows,
+    range: { start: startIso, end: endIso }
+  });
+}
+
+async function adminAuditLogs(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+  const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+  const action = (url.searchParams.get('action') || '').trim();
+  const targetType = (url.searchParams.get('targetType') || '').trim();
+
+  let sql = 'SELECT * FROM audit_logs';
+  const params = [];
+  const conds = [];
+  if (action) { conds.push('action = $' + (params.length + 1)); params.push(action); }
+  if (targetType) { conds.push('target_type = $' + (params.length + 1)); params.push(targetType); }
+  if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
+  sql += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
+  params.push(limit, offset);
+
+  const { rows } = await pool.query(sql, params);
+  const countSql = 'SELECT COUNT(*)::int AS c FROM audit_logs' + (conds.length ? ' WHERE ' + conds.map((c, i) => c.replace(/\$\d+/, '$' + (i + 1))).join(' AND ') : '');
+  const { rows: countRows } = await pool.query(countSql, params.slice(0, -2));
+  sendJson(response, 200, { success: true, logs: rows, total: countRows[0].c, limit, offset });
+}
+
+async function adminGetUser(request, response, id) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  if (!id) return sendJson(response, 400, { success: false, message: 'ID tələb olunur.' });
+  const { rows: users } = await pool.query('SELECT * FROM users WHERE id = $1 LIMIT 1', [id]);
+  if (!users.length) return sendJson(response, 404, { success: false, message: 'İstifadəçi tapılmadı.' });
+  const user = users[0];
+
+  const stats = await pool.query(
+    `SELECT
+      COALESCE(SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END),0)::numeric AS total_deposits,
+      COUNT(DISTINCT o.id)::int AS total_orders,
+      COUNT(DISTINCT CASE WHEN o.status_code = 'completed' THEN o.id END)::int AS completed_orders,
+      COUNT(DISTINCT CASE WHEN o.status_code = 'rejected' THEN o.id END)::int AS rejected_orders
+     FROM users u
+     LEFT JOIN transactions t ON t.user_id = u.id AND t.type = 'credit'
+     LEFT JOIN orders o ON o.user_id = u.id
+     WHERE u.id = $1
+     GROUP BY u.id`,
+    [id]
+  );
+
+  const orders = await pool.query(
+    `SELECT id, game, package, total_amount, status, status_code, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
+    [id]
+  );
+
+  const coupons = await pool.query(
+    `SELECT c.*, uc.uses_left, uc.used_count, uc.assigned_at
+     FROM user_coupons uc JOIN coupons c ON c.id = uc.coupon_id
+     WHERE uc.user_id = $1 ORDER BY uc.assigned_at DESC`,
+    [id]
+  );
+
+  sendJson(response, 200, {
+    success: true,
+    user: sanitizeUser(user),
+    stats: stats.rows[0] || { total_deposits: 0, total_orders: 0, completed_orders: 0, rejected_orders: 0 },
+    orders: orders.rows,
+    coupons: coupons.rows
+  });
+}
+
+async function adminUpdateUser(request, response, id) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
+  if (!id) return sendJson(response, 400, { success: false, message: 'ID tələb olunur.' });
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const allowed = ['username', 'email', 'first_name', 'last_name', 'phone', 'status', 'membership_level'];
+  const sets = ['updated_at = NOW()'];
+  const values = [];
+  for (const key of allowed) {
+    if (body[key] !== undefined) {
+      values.push(String(body[key]).trim());
+      sets.push(`${key} = $${values.length}`);
+    }
+  }
+  if (sets.length === 1) return sendJson(response, 400, { success: false, message: 'Heç bir dəyişiklik yoxdur.' });
+  values.push(id);
+  const { rows } = await pool.query('SELECT * FROM users WHERE id = $1 LIMIT 1', [id]);
+  if (!rows.length) return sendJson(response, 404, { success: false, message: 'İstifadəçi tapılmadı.' });
+  const oldUser = rows[0];
+  await pool.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
+  const { rows: updated } = await pool.query('SELECT * FROM users WHERE id = $1 LIMIT 1', [id]);
+  auditLog('user_updated', { admin, req: request, targetType: 'user', targetId: id, oldValue: oldUser, newValue: updated[0] });
+  sendJson(response, 200, { success: true, user: sanitizeUser(updated[0]) });
+}
+
+async function adminAdjustUserBalance(request, response, id) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
+  if (!id) return sendJson(response, 400, { success: false, message: 'ID tələb olunur.' });
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const amount = Number(body.amount || 0);
+  const reason = String(body.reason || 'Admin balance adjustment').trim();
+  if (!Number.isFinite(amount) || amount === 0) return sendJson(response, 400, { success: false, message: 'Düzgün məbləğ daxil edin.' });
+  const user = await dbFindUserById(id);
+  if (!user) return sendJson(response, 404, { success: false, message: 'İstifadəçi tapılmadı.' });
+  const oldBalance = Number(user.balance || 0);
+  await dbUpdateBalance(id, amount);
+  await dbCreateTransaction(id, Math.abs(amount), amount > 0 ? 'credit' : 'debit', 'approved', reason, 'balance', reason);
+  await dbCreateNotification(id, amount > 0 ? 'Balans artırıldı' : 'Balans azaldıldı', `Hesabınız ${Math.abs(amount).toFixed(2)} ₼ ${amount > 0 ? 'əlavə edildi' : 'azaldıldı'}.`, 'balance');
+  ssePushState(id);
+  if (amount > 0) recalcMembership(id).catch(() => {});
+  const updated = await dbFindUserById(id);
+  auditLog('user_balance_adjusted', { admin, req: request, targetType: 'user', targetId: id, oldValue: { balance: oldBalance }, newValue: { balance: updated.balance, change: amount, reason } });
+  sendJson(response, 200, { success: true, user: sanitizeUser(updated) });
+}
+
+async function adminSendUserMessage(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const userIds = Array.isArray(body.userIds) ? body.userIds : (body.userId ? [body.userId] : []);
+  const title = String(body.title || '').trim();
+  const content = String(body.content || '').trim();
+  const priority = String(body.priority || 'normal').trim();
+  if (!title || !content) return sendJson(response, 400, { success: false, message: 'Başlıq və məzmun tələb olunur.' });
+  let sent = 0;
+  for (const uid of userIds) {
+    if (!uid) continue;
+    await pool.query('INSERT INTO messages (id, sender_id, recipient_id, title, content, priority) VALUES ($1,$2,$3,$4,$5,$6)', [crypto.randomUUID(), admin.id, uid, title, content, priority]);
+    await dbCreateNotification(uid, title, content, 'message');
+    ssePushState(uid);
+    sent++;
+  }
+  auditLog('message_sent', { admin, req: request, targetType: 'message', targetId: null, newValue: { recipients: sent, title, priority } });
+  sendJson(response, 200, { success: true, sent });
+}
+
+async function adminCreateAnnouncement(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const title = String(body.title || '').trim();
+  const content = String(body.content || '').trim();
+  const type = String(body.type || 'info').trim();
+  const targetAudience = String(body.targetAudience || 'all').trim();
+  const targetUserIds = Array.isArray(body.targetUserIds) ? body.targetUserIds : [];
+  const active = body.active !== false;
+  const startDate = body.startDate || null;
+  const endDate = body.endDate || null;
+  if (!title || !content) return sendJson(response, 400, { success: false, message: 'Başlıq və məzmun tələb olunur.' });
+
+  const id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO announcements (id, title, content, type, target_audience, target_user_ids, active, start_date, end_date, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [id, title, content, type, targetAudience, JSON.stringify(targetUserIds), active, startDate, endDate, admin.id]
+  );
+
+  // Notify users immediately
+  const userQuery = targetAudience === 'vip' ? "WHERE membership_level = 'vip'" :
+    targetAudience === 'premium' ? "WHERE membership_level = 'premium'" :
+    targetAudience === 'selected' ? `WHERE id = ANY($1)` : '';
+  const userParams = targetAudience === 'selected' ? [targetUserIds] : [];
+  const { rows: users } = await pool.query(`SELECT id FROM users ${userQuery}`.trim(), userParams);
+  for (const u of users) {
+    await dbCreateNotification(u.id, title, content, 'announcement');
+    ssePushState(u.id);
+  }
+
+  auditLog('announcement_created', { admin, req: request, targetType: 'announcement', targetId: id, newValue: { title, type, targetAudience, active } });
+  sendJson(response, 201, { success: true, id });
+}
+
+async function adminListAnnouncements(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const { rows } = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC');
+  sendJson(response, 200, { success: true, announcements: rows });
+}
+
+async function adminCreateCampaign(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const name = String(body.name || '').trim();
+  const type = String(body.type || '').trim().toLowerCase();
+  const value = Number(body.value || 0);
+  const startDate = body.startDate || null;
+  const endDate = body.endDate || null;
+  const targetType = String(body.targetType || 'all').trim().toLowerCase();
+  const targetIds = Array.isArray(body.targetIds) ? body.targetIds : [];
+  const vipOnly = Boolean(body.vipOnly);
+  const premiumOnly = Boolean(body.premiumOnly);
+  const active = body.active !== false;
+
+  if (!name) return sendJson(response, 400, { success: false, message: 'Kampaniya adı tələb olunur.' });
+  if (!['percentage', 'fixed'].includes(type)) return sendJson(response, 400, { success: false, message: 'Tip percentage və ya fixed olmalıdır.' });
+  if (!Number.isFinite(value) || value <= 0) return sendJson(response, 400, { success: false, message: 'Düzgün dəyər daxil edin.' });
+  if (type === 'percentage' && value > 100) return sendJson(response, 400, { success: false, message: 'Faiz 100-dən çox ola bilməz.' });
+
+  const id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO campaigns (id, name, type, value, start_date, end_date, target_type, target_ids, vip_only, premium_only, active)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [id, name, type, value, startDate, endDate, targetType, JSON.stringify(targetIds), vipOnly, premiumOnly, active]
+  );
+  auditLog('campaign_created', { admin, req: request, targetType: 'campaign', targetId: id, newValue: { name, type, value, active } });
+  sendJson(response, 201, { success: true, id });
+}
+
+async function adminListCampaigns(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const { rows } = await pool.query('SELECT * FROM campaigns ORDER BY created_at DESC');
+  sendJson(response, 200, { success: true, campaigns: rows });
+}
+
+async function adminListMessages(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const userId = (url.searchParams.get('userId') || '').trim();
+  let sql = 'SELECT m.*, u.username AS recipient_name FROM messages m LEFT JOIN users u ON u.id = m.recipient_id';
+  const params = [];
+  if (userId) { sql += ' WHERE m.recipient_id = $1'; params.push(userId); }
+  sql += ' ORDER BY m.created_at DESC LIMIT 100';
+  const { rows } = await pool.query(sql, params);
+  sendJson(response, 200, { success: true, messages: rows });
+}
+
+async function adminBulkProductAction(request, response) {
+  const admin = await requireAdmin(request, response); if (!admin) return;
+  if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
+  const body = JSON.parse(await readRequestBody(request) || '{}');
+  const ids = Array.isArray(body.ids) ? body.ids : [];
+  const action = String(body.action || '').trim().toLowerCase();
+  if (!ids.length) return sendJson(response, 400, { success: false, message: 'Məhsul ID-ləri tələb olunur.' });
+  if (!['hide', 'unhide', 'feature', 'unfeature', 'delete'].includes(action)) return sendJson(response, 400, { success: false, message: 'Düzgün əməliyyat.' });
+
+  const placeholders = ids.map((_, i) => '$' + (i + 1)).join(',');
+  if (action === 'delete') {
+    await pool.query(`DELETE FROM order_items WHERE product_id IN (${placeholders})`, ids);
+    await pool.query(`DELETE FROM products WHERE id IN (${placeholders})`, ids);
+  } else {
+    const updates = {
+      hide: 'hidden = true',
+      unhide: 'hidden = false',
+      feature: 'is_featured = true, featured_at = NOW()',
+      unfeature: 'is_featured = false, featured_at = NULL'
+    };
+    await pool.query(`UPDATE products SET ${updates[action]}, updated_at = NOW(), updated_by = $${ids.length + 1} WHERE id IN (${placeholders})`, [...ids, admin.id]);
+  }
+  auditLog('bulk_product_action', { admin, req: request, targetType: 'product', targetId: ids.join(','), newValue: { action, count: ids.length } });
+  sendJson(response, 200, { success: true, affected: ids.length });
 }
 
 // ==========================================
@@ -1835,6 +2292,12 @@ async function requireAdmin(request, response) {
   return user;
 }
 
+function verifyAdminCsrf(request) {
+  const c = (request.headers['x-csrf-token'] || '').trim();
+  const cookies = parseCookies(request);
+  return c && c === (cookies.admin_csrf || '');
+}
+
 async function logout(request, response) {
   try {
     const token = getAuthToken(request);
@@ -2098,6 +2561,10 @@ function rateLimit(key, limit = 30, windowMs = 60000) {
 function rateKey(request, user, scope) {
   const ip = (request.headers['x-forwarded-for'] || '').split(',')[0].trim() || request.socket.remoteAddress || 'unknown';
   return `${scope}:${user ? user.id : ip}`;
+}
+function adminApiLimit(request, action = 'default', limit = 60, windowMs = 60000) {
+  const ip = (request.headers['x-forwarded-for'] || '').split(',')[0].trim() || request.socket.remoteAddress || 'unknown';
+  return rateLimit(`admin:${action}:${ip}`, limit, windowMs);
 }
 
 // ==========================================
@@ -2404,6 +2871,7 @@ async function serveStatic(request, response) {
 
 const server = http.createServer(async (request, response) => {
   try {
+    if (request.method === 'GET' && request.url === '/api/health') return await healthCheck(request, response);
     if (request.method === 'POST' && request.url === '/api/register') return await register(request, response);
     if (request.method === 'POST' && request.url === '/api/login') return await login(request, response);
     if (request.method === 'POST' && request.url === '/api/auth/register') return await authRegister(request, response);
@@ -2437,8 +2905,21 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/api/admin/orders') return await adminListOrders(request, response);
     if (request.method === 'PUT' && request.url === '/api/admin/orders/status') return await adminUpdateOrderStatus(request, response);
     if (request.method === 'GET' && request.url === '/api/admin/users') return await adminListUsers(request, response);
+    if (request.method === 'GET' && /^\/api\/admin\/users\/[^/]+$/.test(request.url)) return await adminGetUser(request, response, decodeURIComponent(request.url.split('/').pop()));
+    if (request.method === 'PUT' && /^\/api\/admin\/users\/[^/]+$/.test(request.url)) return await adminUpdateUser(request, response, decodeURIComponent(request.url.split('/').pop()));
+    if (request.method === 'POST' && /^\/api\/admin\/users\/[^/]+\/balance$/.test(request.url)) return await adminAdjustUserBalance(request, response, decodeURIComponent(request.url.split('/')[4]));
     if (request.method === 'POST' && request.url === '/api/cart/checkout') return await cartCheckout(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/balance/adjust') return await adminAdjustBalance(request, response);
+    if (request.method === 'GET' && request.url === '/api/admin/dashboard/stats') return await adminDashboardStats(request, response);
+    if (request.method === 'GET' && request.url === '/api/admin/dashboard/charts') return await adminDashboardCharts(request, response);
+    if (request.method === 'GET' && request.url === '/api/admin/audit-logs') return await adminAuditLogs(request, response);
+    if (request.method === 'POST' && request.url === '/api/admin/messages') return await adminSendUserMessage(request, response);
+    if (request.method === 'GET' && request.url === '/api/admin/messages') return await adminListMessages(request, response);
+    if (request.method === 'POST' && request.url === '/api/admin/announcements') return await adminCreateAnnouncement(request, response);
+    if (request.method === 'GET' && request.url === '/api/admin/announcements') return await adminListAnnouncements(request, response);
+    if (request.method === 'POST' && request.url === '/api/admin/campaigns') return await adminCreateCampaign(request, response);
+    if (request.method === 'GET' && request.url === '/api/admin/campaigns') return await adminListCampaigns(request, response);
+    if (request.method === 'POST' && request.url === '/api/admin/products/bulk') return await adminBulkProductAction(request, response);
     if (request.method === 'POST' && request.url === '/api/avatar/requests') return await submitAvatarRequest(request, response);
     if (request.method === 'GET' && request.url === '/api/avatar/requests') return await listMyAvatarRequests(request, response);
     if (request.method === 'POST' && request.url === '/api/deposits') return await submitDeposit(request, response);
@@ -2500,6 +2981,10 @@ const server = http.createServer(async (request, response) => {
     if (request.url === '/admin/deposits' || request.url.startsWith('/admin/deposits?')) return await admin.rDeposits(request, response, pool);
     if (request.url === '/admin/avatars' || request.url.startsWith('/admin/avatars?')) return await admin.rAvatars(request, response, pool);
     if (request.url === '/admin/receipt' || request.url.startsWith('/admin/receipt?')) return await admin.rReceipt(request, response, pool);
+    if (request.url === '/admin/audit-logs' || request.url.startsWith('/admin/audit-logs?')) return await admin.rAuditLogs(request, response, pool);
+    if (request.url === '/admin/campaigns' || request.url.startsWith('/admin/campaigns?')) return await admin.rCampaigns(request, response, pool);
+    if (request.url === '/admin/messages' || request.url.startsWith('/admin/messages?')) return await admin.rMessages(request, response, pool);
+    if (request.url === '/admin/announcements' || request.url.startsWith('/admin/announcements?')) return await admin.rAnnouncements(request, response, pool);
 
     if (request.method === 'GET') return await serveStatic(request, response);
 

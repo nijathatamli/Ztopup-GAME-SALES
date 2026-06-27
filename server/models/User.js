@@ -1,17 +1,24 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const { Pool } = require('pg');
+const crypto = require('crypto');
 const config = require('../config');
 
-// SQLite database connection
-const dbPath = path.join(__dirname, '../../data/zelix_auth.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) console.error('SQLite connection error:', err);
-  else console.log('Connected to SQLite database');
+// PostgreSQL connection pool
+const pool = new Pool({
+  host: config.DB_HOST,
+  port: config.DB_PORT,
+  database: config.DB_NAME,
+  user: config.DB_USER,
+  password: config.DB_PASSWORD,
+  ssl: config.DB_SSL === 'false' ? false : { rejectUnauthorized: false }
+});
+
+pool.on('error', (err) => {
+  console.error('PostgreSQL pool error:', err);
 });
 
 /**
  * User Model - Database operations for users
- * Uses SQLite with parameterized queries to prevent SQL injection
+ * Uses PostgreSQL with parameterized queries to prevent SQL injection
  */
 class User {
   /**
@@ -19,25 +26,18 @@ class User {
    * Creates table if it doesn't exist with proper constraints
    */
   static async init() {
-    return new Promise((resolve, reject) => {
-      const query = `
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          username TEXT UNIQUE NOT NULL,
-          email TEXT UNIQUE NOT NULL,
-          password_hash TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        
-        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-        CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-      `;
-      db.run(query, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
+        username VARCHAR(80) UNIQUE NOT NULL,
+        email VARCHAR(190) UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)');
   }
 
   /**
@@ -45,18 +45,11 @@ class User {
    * Used during login to check if user exists
    */
   static async findByEmailOrUsername(identifier) {
-    return new Promise((resolve, reject) => {
-      const query = `
-        SELECT id, username, email, password_hash, created_at, updated_at
-        FROM users
-        WHERE email = ? OR username = ?
-        LIMIT 1
-      `;
-      db.get(query, [identifier, identifier], (err, row) => {
-        if (err) reject(err);
-        else resolve(row || null);
-      });
-    });
+    const { rows } = await pool.query(
+      'SELECT id, username, email, password_hash, created_at, updated_at FROM users WHERE email = $1 OR username = $1 LIMIT 1',
+      [identifier]
+    );
+    return rows[0] || null;
   }
 
   /**
@@ -64,18 +57,11 @@ class User {
    * Used to fetch authenticated user details
    */
   static async findById(id) {
-    return new Promise((resolve, reject) => {
-      const query = `
-        SELECT id, username, email, created_at, updated_at
-        FROM users
-        WHERE id = ?
-        LIMIT 1
-      `;
-      db.get(query, [id], (err, row) => {
-        if (err) reject(err);
-        else resolve(row || null);
-      });
-    });
+    const { rows } = await pool.query(
+      'SELECT id, username, email, created_at, updated_at FROM users WHERE id = $1 LIMIT 1',
+      [id]
+    );
+    return rows[0] || null;
   }
 
   /**
@@ -83,13 +69,8 @@ class User {
    * Used during registration validation
    */
   static async emailExists(email) {
-    return new Promise((resolve, reject) => {
-      const query = 'SELECT id FROM users WHERE email = ? LIMIT 1';
-      db.get(query, [email], (err, row) => {
-        if (err) reject(err);
-        else resolve(!!row);
-      });
-    });
+    const { rows } = await pool.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [email]);
+    return rows.length > 0;
   }
 
   /**
@@ -97,37 +78,21 @@ class User {
    * Used during registration validation
    */
   static async usernameExists(username) {
-    return new Promise((resolve, reject) => {
-      const query = 'SELECT id FROM users WHERE username = ? LIMIT 1';
-      db.get(query, [username], (err, row) => {
-        if (err) reject(err);
-        else resolve(!!row);
-      });
-    });
+    const { rows } = await pool.query('SELECT id FROM users WHERE username = $1 LIMIT 1', [username]);
+    return rows.length > 0;
   }
 
   /**
    * Create new user
    * Stores hashed password - never plain text
    */
-  static async create({ username, email, passwordHash }) {
-    return new Promise((resolve, reject) => {
-      const query = `
-        INSERT INTO users (username, email, password_hash)
-        VALUES (?, ?, ?)
-        RETURNING id, username, email, created_at
-      `;
-      db.run(query, [username, email, passwordHash], function(err) {
-        if (err) reject(err);
-        else {
-          // Fetch the inserted row
-          db.get('SELECT id, username, email, created_at FROM users WHERE id = ?', [this.lastID], (err, row) => {
-            if (err) reject(err);
-            else resolve(row);
-          });
-        }
-      });
-    });
+  static async create({ username, email, passwordHash, name, firstName, lastName }) {
+    const id = crypto.randomUUID();
+    const { rows } = await pool.query(
+      'INSERT INTO users (id, username, name, first_name, last_name, email, password_hash) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, username, email, created_at',
+      [id, username, name, firstName, lastName, email, passwordHash]
+    );
+    return rows[0];
   }
 
   /**
@@ -135,24 +100,14 @@ class User {
    * Optional: can be used to track user activity
    */
   static async updateLastLogin(id) {
-    return new Promise((resolve, reject) => {
-      const query = `
-        UPDATE users
-        SET updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `;
-      db.run(query, [id], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    await pool.query('UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
   }
 
   /**
-   * Get db instance for direct queries if needed
+   * Get db pool instance for direct queries if needed
    */
-  static getDb() {
-    return db;
+  static getPool() {
+    return pool;
   }
 }
 

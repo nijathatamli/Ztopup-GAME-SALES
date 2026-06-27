@@ -25,7 +25,8 @@ async function register(req, res) {
       });
     }
 
-    const { username, email, password } = req.body;
+    const { username, email, password, firstName, lastName } = req.body;
+    const name = `${firstName || ''} ${lastName || ''}`.trim();
 
     // Check if email already exists
     const emailExists = await User.emailExists(email);
@@ -53,6 +54,9 @@ async function register(req, res) {
       username,
       email,
       passwordHash,
+      name,
+      firstName,
+      lastName,
     });
 
     // Generate JWT token for immediate login

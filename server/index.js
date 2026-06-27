@@ -6,6 +6,11 @@ const config = require('./config');
 const User = require('./models/User');
 const authRoutes = require('./routes/authRoutes');
 
+if (!config.JWT_SECRET) {
+  console.error('ERROR: JWT_SECRET environment variable is required');
+  process.exit(1);
+}
+
 const app = express();
 
 // Security middleware
@@ -38,12 +43,23 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Server is running',
-    timestamp: new Date().toISOString(),
-  });
+app.get('/health', async (req, res) => {
+  try {
+    const userPool = User.getPool();
+    const { rows } = await userPool.query('SELECT NOW() AS t');
+    res.status(200).json({
+      success: true,
+      message: 'Server is running',
+      database: 'connected',
+      timestamp: rows[0].t,
+    });
+  } catch (error) {
+    res.status(503).json({
+      success: false,
+      message: 'Database connection failed',
+      error: error.message,
+    });
+  }
 });
 
 // API routes

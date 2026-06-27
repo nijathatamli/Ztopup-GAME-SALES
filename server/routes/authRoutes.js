@@ -24,6 +24,14 @@ const registerValidation = [
   body('password')
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters'),
+  body('firstName')
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage('First name must be at least 2 characters'),
+  body('lastName')
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage('Last name must be at least 2 characters'),
 ];
 
 /**

@@ -4,7 +4,10 @@
   "description": "ZELIX TOPUP gaming top-up marketplace with login and registration",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "migrate": "node -e \"require('child_process').execSync('psql \\$DATABASE_URL -f migrations/2026_deposit_system.sql && psql \\$DATABASE_URL -f migrations/2026_profile_dashboard_membership.sql && psql \\$DATABASE_URL -f migrations/2026_enterprise_admin_panel.sql && psql \\$DATABASE_URL -f migrations/2026_schema_audit_fix.sql', {stdio: 'inherit'})\"",
+    "health": "curl -s http://localhost:8091/api/health",
+    "check": "node --check server.js && node --check admin-routes.js && node --check lib/audit.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

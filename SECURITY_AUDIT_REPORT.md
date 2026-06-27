@@ -99,6 +99,9 @@ node --check admin-routes.js
 # Local server start
 node server.js
 
+# Test health endpoint (DB + schema columns)
+curl -s http://localhost:8091/api/health
+
 # Test SSE connection
 TOKEN=<user-jwt>
 curl -N 'http://localhost:8091/api/stream?token=$TOKEN'
@@ -110,6 +113,87 @@ curl -s http://localhost:8091/api/orders -H "Authorization: Bearer $TOKEN"
 
 ---
 
-## 7. Conclusion
+## 7. Enterprise Admin Panel Upgrade (2026-06-27)
+
+### 7.1 Database foundation
+- Created migration `migrations/2026_enterprise_admin_panel.sql` adding tables/columns for:
+  - `audit_logs` (admin_id, action, target_type, target_id, old_value, new_value, ip, browser, os, user_agent)
+  - `campaigns` (percentage/fixed discounts, time-limited, VIP/Premium targeting)
+  - `messages` (admin-to-user messaging with priority)
+  - `announcements` (global notifications with target audience)
+  - `membership_tiers`
+  - Enhanced `users`, `products`, `orders`, `coupons`, `sessions`, and `admins` tables
+  - Indexes and foreign key constraints for performance and referential integrity.
+
+### 7.2 Audit logging
+- Added shared audit logger `lib/audit.js` that persists every administrative action to PostgreSQL.
+- Integrated audit logging into admin login, balance adjustments, deposits, order status changes, user updates, campaigns, messages, announcements, and bulk product actions.
+
+### 7.3 Real-time admin dashboard
+- Redesigned `/admin/` dashboard with Chart.js charts and live PostgreSQL metrics:
+  - Today's/weekly/monthly revenue
+  - Order status counts (pending, processing, completed, rejected)
+  - User counts (total, new today, online)
+  - Daily sales, monthly revenue, new user registrations, order status distribution, top categories
+  - Time range filters (today, 7 days, 30 days, year)
+
+### 7.4 User management upgrade
+- User profile dialog shows: balance, membership, status, total orders, completed/rejected orders, total deposits, recent orders, assigned coupons.
+- Admin actions: edit status/membership, adjust balance, send message, assign coupon.
+- Membership changes push real-time state updates via SSE to affect customer pricing immediately.
+
+### 7.5 Order management upgrade
+- Status workflow: pending → processing → completed/rejected.
+- Rejection requires a reason that becomes visible to the customer.
+- Optional automatic refund to user balance with a transaction record.
+- Admin notes and audit log entries for every status change.
+
+### 7.6 Product management upgrade
+- Bulk operations: hide, unhide, feature, unfeature, delete.
+- Per-product duplicate and delete actions.
+- Product table includes featured, active, stock, and sort order.
+
+### 7.7 Campaign, message, and announcement systems
+- Admin pages: `/admin/campaigns`, `/admin/messages`, `/admin/announcements`.
+- APIs: `/api/admin/campaigns`, `/api/admin/messages`, `/api/admin/announcements`.
+- Campaigns support percentage/fixed discounts, time windows, category/product targeting, and VIP/Premium exclusivity.
+- Announcements immediately create notifications and push SSE updates to target audiences (all, VIP, Premium).
+
+### 7.8 Security hardening
+- Admin cookies now use `Path=/` so `/api/admin/*` endpoints receive authentication cookies.
+- CSRF token verification added to all mutating admin APIs (`PUT`/`POST`/`DELETE`) via `verifyAdminCsrf`.
+- Admin API rate limiting helper added (`adminApiLimit`).
+- Audit log entries capture IP, browser, OS, and user agent.
+
+### 7.9 API standardization
+- New enterprise admin APIs return consistent `{ success: true, ... }` responses.
+- Pagination, filtering, and total counts implemented for audit logs.
+- Server-side filtering and sorting for orders, users, and products.
+
+### 7.10 Real-time synchronization
+- All balance, membership, order, coupon, message, and announcement changes trigger `ssePushState` or `sseSend` to update the customer website immediately.
+
+### 7.11 Database schema audit and synchronization
+- Created `migrations/2026_schema_audit_fix.sql`, an idempotent migration that ensures every column referenced by the application exists.
+- Verified every SQL query referencing the `active` column targets a table that has it (`admins`, `coupons`, `membership_tiers`, `campaigns`, `announcements`).
+- The `column "active" does not exist` error was caused by a schema version mismatch between the current code and the database (likely on Render); the fix migration resolves this when applied.
+- Documented Render synchronization steps in `SCHEMA_AUDIT_REPORT.md`.
+
+### 7.12 Performance optimization
+- Added server-side pagination to the admin user list (50 users per page).
+- Added a simple in-memory TTL cache for the public category list API with automatic invalidation on category create/update/delete/duplicate.
+- Added database indexes for products, categories, orders, and users to speed up common filters and sorting.
+
+### 7.13 Server auth backend (`server/`) hardening
+- Replaced SQLite with PostgreSQL in `server/models/User.js` so the auth server uses the same database as the main app.
+- Enforced `JWT_SECRET` at startup: the server exits immediately if the secret is not set.
+- Removed the insecure default JWT secret from `server/config/index.js` and `.env.example`.
+- Updated `server/.env.example` with `DB_SSL` and a blank `JWT_SECRET`.
+- Updated registration validation and controller to collect `firstName` and `lastName`, making the auth server compatible with the main `users` table schema.
+- Enhanced `/health` endpoint to verify the PostgreSQL connection.
+
+---
+
+## 8. Conclusion
 
 The three critical bugs are resolved. The application is now more resilient on Render, the admin panel CSRF flow is stable, and order status changes are persisted correctly and propagated to users in real time. Additional security controls (rate limiting, JWT secret enforcement, audit logging) are in place. Address the remaining recommendations before full production launch.
