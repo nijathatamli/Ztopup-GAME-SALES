@@ -146,24 +146,62 @@ async function getAdmin(req,pool){
     await pool.query('UPDATE admin_sessions SET expires_at=NOW() + $1::interval WHERE token=$2',[ADMIN_SESSION_MAX_AGE_SECONDS + ' seconds',jti]);
     const a=await findAdminById(pool,adminId);
     if(!a||a.active===false)return null;
-    return {id:a.id,username:a.username,email:a.email,active:a.active!==false,csrfToken:session.csrf_token||c.admin_csrf||''};
+    return {id:a.id,username:a.username,email:a.email,role:a.role||'admin',active:a.active!==false,csrfToken:session.csrf_token||c.admin_csrf||''};
   }catch{return null;}
 }
 async function requireAdmin(req,res,pool){const a=await getAdmin(req,pool);if(!a){res.writeHead(302,{Location:'/admin/login'});res.end();return null;}return a;}
 
+async function getAdminRolePermissions(pool, role){
+  if (!role) return [];
+  const { rows } = await pool.query('SELECT permission FROM admin_permissions WHERE role=$1', [role]);
+  return rows.map(r => r.permission);
+}
+async function hasAdminPermission(pool, admin, permission){
+  if (!admin || !admin.role) return false;
+  if (admin.role === 'super_admin') return true;
+  const perms = await getAdminRolePermissions(pool, admin.role);
+  return perms.includes(permission) || perms.includes('*');
+}
+async function requireAdminPermission(req,res,pool,permission){
+  const a = await requireAdmin(req,res,pool);
+  if (!a) return null;
+  if (a.role === 'super_admin') return a;
+  const ok = await hasAdminPermission(pool,a,permission);
+  if (!ok) { res.writeHead(302,{Location:'/admin/'}); res.end(); return null; }
+  return a;
+}
+async function sendForbidden(res, message='İcazə yoxdur'){return sendHtml(res,403,`<!doctype html><html lang="az"><head><meta charset="utf-8"/><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0b12;color:#fff;font-family:system-ui}</style></head><body><h1>${esc(message)}</h1></body></html>`);}
+
 async function ensureAdminSchema(pool){
   await pool.query(`CREATE TABLE IF NOT EXISTS admins (
-    id VARCHAR(36) PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     username VARCHAR(100) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT true,
+    role TEXT NOT NULL DEFAULT 'admin',
+    last_login_at TIMESTAMP NULL,
+    last_login_ip VARCHAR(45) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
+  await pool.query('ALTER TABLE admins ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT \'admin\'');
+  await pool.query('ALTER TABLE admins ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP NULL');
+  await pool.query('ALTER TABLE admins ADD COLUMN IF NOT EXISTS last_login_ip VARCHAR(45) NULL');
+  await pool.query(`CREATE TABLE IF NOT EXISTS admin_roles (
+    role TEXT PRIMARY KEY,
+    description TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS admin_permissions (
+    role TEXT NOT NULL REFERENCES admin_roles(role) ON DELETE CASCADE,
+    permission TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (role, permission)
+  )`);
   await pool.query(`CREATE TABLE IF NOT EXISTS admin_sessions (
     id VARCHAR(36) PRIMARY KEY,
-    admin_id VARCHAR(36) NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+    admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
     token VARCHAR(255) UNIQUE NOT NULL,
     csrf_token VARCHAR(255) NOT NULL,
     expires_at TIMESTAMP NOT NULL,
@@ -172,6 +210,51 @@ async function ensureAdminSchema(pool){
   await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS csrf_token VARCHAR(255)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON admin_sessions(token)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at)');
+  // Seed default roles and permissions (idempotent)
+  const roles = [
+    { role: 'super_admin', description: 'Full system access' },
+    { role: 'admin', description: 'Standard admin access' },
+    { role: 'moderator', description: 'Order and user management' },
+    { role: 'support', description: 'Customer support access' }
+  ];
+  for (const r of roles) {
+    await pool.query('INSERT INTO admin_roles(role, description) VALUES ($1, $2) ON CONFLICT (role) DO NOTHING', [r.role, r.description]);
+  }
+  const permissions = [
+    // super_admin gets everything implicitly
+    { role: 'admin', permission: 'dashboard' },
+    { role: 'admin', permission: 'users.view' }, { role: 'admin', permission: 'users.manage' }, { role: 'admin', permission: 'users.balance' },
+    { role: 'admin', permission: 'orders.view' }, { role: 'admin', permission: 'orders.manage' },
+    { role: 'admin', permission: 'products.view' }, { role: 'admin', permission: 'products.manage' },
+    { role: 'admin', permission: 'categories.view' }, { role: 'admin', permission: 'categories.manage' },
+    { role: 'admin', permission: 'campaigns.view' }, { role: 'admin', permission: 'campaigns.manage' },
+    { role: 'admin', permission: 'announcements.view' }, { role: 'admin', permission: 'announcements.manage' },
+    { role: 'admin', permission: 'messages.view' }, { role: 'admin', permission: 'messages.manage' },
+    { role: 'admin', permission: 'balance.view' }, { role: 'admin', permission: 'balance.manage' },
+    { role: 'admin', permission: 'deposits.view' }, { role: 'admin', permission: 'deposits.manage' },
+    { role: 'admin', permission: 'audit_logs.view' },
+    { role: 'admin', permission: 'avatars.view' }, { role: 'admin', permission: 'avatars.manage' },
+    { role: 'admin', permission: 'coupons.view' }, { role: 'admin', permission: 'coupons.manage' },
+    { role: 'admin', permission: 'settings.view' }, { role: 'admin', permission: 'settings.manage' },
+    { role: 'moderator', permission: 'dashboard' },
+    { role: 'moderator', permission: 'users.view' }, { role: 'moderator', permission: 'users.manage' },
+    { role: 'moderator', permission: 'orders.view' }, { role: 'moderator', permission: 'orders.manage' },
+    { role: 'moderator', permission: 'products.view' },
+    { role: 'moderator', permission: 'categories.view' },
+    { role: 'moderator', permission: 'messages.view' }, { role: 'moderator', permission: 'messages.manage' },
+    { role: 'moderator', permission: 'balance.view' }, { role: 'moderator', permission: 'balance.manage' },
+    { role: 'moderator', permission: 'deposits.view' }, { role: 'moderator', permission: 'deposits.manage' },
+    { role: 'moderator', permission: 'avatars.view' },
+    { role: 'support', permission: 'dashboard' },
+    { role: 'support', permission: 'users.view' },
+    { role: 'support', permission: 'orders.view' },
+    { role: 'support', permission: 'messages.view' }, { role: 'support', permission: 'messages.manage' },
+    { role: 'support', permission: 'deposits.view' },
+    { role: 'support', permission: 'balance.view' }
+  ];
+  for (const p of permissions) {
+    await pool.query('INSERT INTO admin_permissions(role, permission) VALUES ($1, $2) ON CONFLICT (role, permission) DO NOTHING', [p.role, p.permission]);
+  }
   await pool.query(`CREATE TABLE IF NOT EXISTS balance_requests (id VARCHAR(36) PRIMARY KEY,user_id VARCHAR(36) NOT NULL,amount DECIMAL(10,2) NOT NULL,image_url TEXT NOT NULL,status VARCHAR(20) NOT NULL DEFAULT 'pending',reviewed_by TEXT NULL,reviewed_at TIMESTAMP NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_balance_user ON balance_requests(user_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_balance_status ON balance_requests(status)');
@@ -211,6 +294,8 @@ function checkLoginLimit(ip){
 async function rLogin(req,res,pool){
   const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
   if(req.method==='GET'){
+    const currentAdmin = await getAdmin(req,pool);
+    if (currentAdmin) { res.writeHead(302,{Location:'/admin/'}); res.end(); return; }
     if (!checkLoginLimit(clientIp)) return sendHtml(res,429,'<h1>Çox sayda cəhdi. Bir az gözləyin.</h1>');
     const t=csrfToken();setCookie(res,'admin_csrf',t,3600);const html=`<!doctype html><html lang="az"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin Giriş</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0b12;color:#fff;font-family:Rajdhani,system-ui}.card{width:100%;max-width:420px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:24px}h1{font-size:22px;margin:0 0 16px}label{display:block;font-size:13px;color:#c9c9d1;margin:10px 0 6px}input{width:100%;background:#141427;border:1px solid rgba(255,255,255,.1);color:#fff;border-radius:10px;padding:10px 12px;outline:none;box-sizing:border-box}button{width:100%;margin-top:16px;background:#6c4df4;border:none;color:#fff;padding:12px 14px;border-radius:12px;font-weight:800;cursor:pointer}.error{margin-top:10px;background:rgba(255,99,71,.1);border:1px solid rgba(255,99,71,.3);padding:10px;border-radius:10px;color:#ffb3a7}</style></head><body><div class="card"><h1>Admin Giriş</h1><form method="post" autocomplete="on"><input type="hidden" name="csrf" value="${esc(t)}"/><label>Email və ya İstifadəçi Adı</label><input type="text" name="identifier" required/><label>Şifrə</label><input type="password" name="password" required/><button type="submit">Daxil ol</button></form></div></body></html>`;return sendHtml(res,200,html);}
     if(req.method==='POST'){if(!checkLoginLimit(clientIp))return sendHtml(res,429,'<h1>Çox sayda cəhdi. Bir az gözləyin.</h1>');try{const body=await readBody(req);const id=String(body.identifier||'').trim().toLowerCase();const pw=String(body.password||'');const a=await findAdmin(pool,id);if(!a||!verifyPw(pw,a.password_hash)){auditLog(pool,'admin_login_failed',{admin:{id:'unknown',username:'unknown'},req,targetId:id,meta:{identifier:id}});const t=csrfToken();setCookie(res,'admin_csrf',t,3600);const html=`<!doctype html><html lang="az"><head><meta charset="utf-8"/><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0b12;color:#fff;font-family:Rajdhani,system-ui}.card{width:100%;max-width:420px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:24px}h1{font-size:22px;margin:0 0 16px}label{display:block;font-size:13px;color:#c9c9d1;margin:10px 0 6px}input{width:100%;background:#141427;border:1px solid rgba(255,255,255,.1);color:#fff;border-radius:10px;padding:10px 12px;outline:none;box-sizing:border-box}button{width:100%;margin-top:16px;background:#6c4df4;border:none;color:#fff;padding:12px 14px;border-radius:12px;font-weight:800;cursor:pointer}.error{margin-top:10px;background:rgba(255,99,71,.1);border:1px solid rgba(255,99,71,.3);padding:10px;border-radius:10px;color:#ffb3a7}</style></head><body><div class="card"><h1>Admin Girişi</h1><div class="error">Giriş məlumatları səhvdir</div><form method="post"><input type="hidden" name="csrf" value="${esc(t)}"/><label>Email və ya İstifadəçi Adı</label><input type="text" name="identifier" required value="${esc(id)}"/><label>Şifrə</label><input type="password" name="password" required/><button type="submit">Daxil ol</button></form></div></body></html>`;return sendHtml(res,200,html);}
@@ -218,6 +303,7 @@ async function rLogin(req,res,pool){
     const csrf=csrfToken();
     const token=jwt.sign({sub:String(a.id),jti},JWT_SECRET,{expiresIn:ADMIN_SESSION_MAX_AGE_SECONDS});
     await pool.query('INSERT INTO admin_sessions(id,admin_id,token,csrf_token,expires_at)VALUES($1,$2,$3,$4,NOW() + $5::interval)',[crypto.randomUUID(),String(a.id),jti,csrf,ADMIN_SESSION_MAX_AGE_SECONDS + ' seconds']);
+    await pool.query('UPDATE admins SET last_login_at=NOW(), last_login_ip=$1 WHERE id=$2',[clientIp,String(a.id)]);
     setCookie(res,'admin_token',token,ADMIN_SESSION_MAX_AGE_SECONDS);
     setCookie(res,'admin_csrf',csrf, ADMIN_SESSION_MAX_AGE_SECONDS);
     auditLog(pool,'admin_login_success',{admin:a,req,targetId:a.id,meta:{adminId:a.id,username:a.username}});
@@ -238,7 +324,7 @@ async function rLogout(req,res,pool){
   res.end();
 }
 
-async function rDashboard(req,res,pool){const a=await requireAdmin(req,res,pool);if(!a)return;const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);
+async function rDashboard(req,res,pool){const a=await requireAdminPermission(req,res,pool,'dashboard');if(!a)return;const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);
   const content=`<main class="wrap">
   <div class="toolbar" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap">
     <h2 style="margin:0;font-family:Orbitron,sans-serif;font-size:22px">Dashboard</h2>
@@ -249,23 +335,26 @@ async function rDashboard(req,res,pool){const a=await requireAdmin(req,res,pool)
       <option value="year">Bu il</option>
     </select>
   </div>
+  <div id="dashError" class="card" style="display:none;color:#ffb3a7;border-color:rgba(255,99,71,.35)"></div>
   <div class="grid" id="statGrid"></div>
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(420px,1fr))">
-    <div class="card"><h3 style="font-family:Orbitron,sans-serif;margin:0 0 12px">Günlük satışlar</h3><canvas id="dailyChart" height="180"></canvas></div>
-    <div class="card"><h3 style="font-family:Orbitron,sans-serif;margin:0 0 12px">Status paylanması</h3><canvas id="statusChart" height="180"></canvas></div>
-    <div class="card"><h3 style="font-family:Orbitron,sans-serif;margin:0 0 12px">Yeni istifadəçilər</h3><canvas id="usersChart" height="180"></canvas></div>
+    <div class="card"><h3 style="font-family:Orbitron,sans-serif;margin:0 0 12px">Günlük satışlar</h3><div id="dailyChartWrap" style="height:180px"><canvas id="dailyChart"></canvas></div></div>
+    <div class="card"><h3 style="font-family:Orbitron,sans-serif;margin:0 0 12px">Status paylanması</h3><div id="statusChartWrap" style="height:180px"><canvas id="statusChart"></canvas></div></div>
+    <div class="card"><h3 style="font-family:Orbitron,sans-serif;margin:0 0 12px">Yeni istifadəçilər</h3><div id="usersChartWrap" style="height:180px"><canvas id="usersChart"></canvas></div></div>
     <div class="card"><h3 style="font-family:Orbitron,sans-serif;margin:0 0 12px">Ən çox satılan kateqoriyalar</h3><div id="topCategories" style="max-height:220px;overflow:auto"></div></div>
   </div>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 let charts={};
-async function api(url,opts={}){opts.headers=opts.headers||{};opts.headers['X-CSRF-Token']='${esc(cs)}';if(opts.body&&typeof opts.body==='object'){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(opts.body);}const r=await fetch(url,opts);if(!r.ok)throw new Error((await r.text()).slice(0,200));return r.json();}
-async function loadStats(){const range=document.getElementById('range').value;const data=await api('/api/admin/dashboard/stats?range='+range);const s=data.stats;const cards=[['Bugünkü gəlir','₼ '+Number(s.todayRevenue||0).toFixed(2)],['Həftəlik gəlir','₼ '+Number(s.weeklyRevenue||0).toFixed(2)],['Aylıq gəlir','₼ '+Number(s.monthlyRevenue||0).toFixed(2)],['Ümumi gəlir','₼ '+Number(s.totalRevenue||0).toFixed(2)],['Bugünkü sifariş',s.todayOrders||0],['Gözləmədə',s.pendingOrders||0],['Emalda',s.processingOrders||0],['Tamamlanmış',s.completedOrders||0],['Rədd edilmiş',s.rejectedOrders||0],['Ümumi istifadəçi',s.totalUsers||0],['Yeni istifadəçi (bugün)',s.newUsersToday||0],['Onlayn',s.onlineUsers||0],['Gözləyən balans',s.pendingBalance||0],['Gözləyən depozit',s.pendingDeposits||0]];document.getElementById('statGrid').innerHTML=cards.map(([l,v])=>\`<div class="card"><div style="color:#c9c9d1;font-size:13px">\${l}</div><div class="stat">\${v}</div></div>\`).join('');}
-async function loadCharts(){const range=document.getElementById('range').value;const data=await api('/api/admin/dashboard/charts?range='+range);const labels=data.dailySales.map(d=>d.day);const dailyRevenue=data.dailySales.map(d=>Number(d.revenue||0));const dailyOrders=data.dailySales.map(d=>Number(d.orders||0));const newUsers=data.newUsers.map(d=>Number(d.users||0));const statusLabels=data.orderStatusDistribution.map(d=>d.status_code);const statusValues=data.orderStatusDistribution.map(d=>Number(d.count||0));if(charts.daily)charts.daily.destroy();charts.daily=new Chart(document.getElementById('dailyChart'),{type:'bar',data:{labels,datasets:[{label:'Gəlir (₼)',data:dailyRevenue,backgroundColor:'#f1c40f'},{label:'Sifariş',data:dailyOrders,backgroundColor:'#6c4df4'}]},options:{responsive:true,scales:{y:{beginAtZero:true}},plugins:{legend:{labels:{color:'#fff'}}}}});
-if(charts.status)charts.status.destroy();charts.status=new Chart(document.getElementById('statusChart'),{type:'doughnut',data:{labels:statusLabels,datasets:[{data:statusValues,backgroundColor:['#f1c40f','#6c4df4','#27ae60','#e74c3c']}]},options:{responsive:true,plugins:{legend:{labels:{color:'#fff'}}}}});
-if(charts.users)charts.users.destroy();charts.users=new Chart(document.getElementById('usersChart'),{type:'line',data:{labels,datasets:[{label:'Yeni istifadəçilər',data:newUsers,borderColor:'#3498db',tension:0.3}]},options:{responsive:true,plugins:{legend:{labels:{color:'#fff'}}},scales:{y:{beginAtZero:true}}}});
-document.getElementById('topCategories').innerHTML=(data.topCategories||[]).map((c,i)=>\`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)"><span>#\${i+1} \${c.name||'Digər'}</span><span style="color:#f1c40f">₼ \${Number(c.revenue||0).toFixed(2)}</span></div>\`).join('')||'<div style="color:#9a9aa6">Məlumat yoxdur</div>';}
+function showError(msg){const el=document.getElementById('dashError');if(el){el.textContent=msg;el.style.display='block';}console.error(msg);}
+function showEmpty(id,msg){const el=document.getElementById(id);if(el)el.innerHTML='<div style="color:#9a9aa6;padding:20px 0">'+(msg||'Məlumat yoxdur')+'</div>';}
+async function api(url,opts={}){opts.headers=opts.headers||{};opts.headers['X-CSRF-Token']='${esc(cs)}';if(opts.body&&typeof opts.body==='object'){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(opts.body);}const r=await fetch(url,opts);if(!r.ok){const text=await r.text();throw new Error(text.slice(0,200));}return r.json();}
+async function loadStats(){try{const range=document.getElementById('range').value;const data=await api('/api/admin/dashboard/stats?range='+range);const s=data.stats;const cards=[['Bugünkü gəlir','₼ '+Number(s.todayRevenue||0).toFixed(2)],['Həftəlik gəlir','₼ '+Number(s.weeklyRevenue||0).toFixed(2)],['Aylıq gəlir','₼ '+Number(s.monthlyRevenue||0).toFixed(2)],['Ümumi gəlir','₼ '+Number(s.totalRevenue||0).toFixed(2)],['Bugünkü sifariş',s.todayOrders||0],['Gözləmədə',s.pendingOrders||0],['Emalda',s.processingOrders||0],['Tamamlanmış',s.completedOrders||0],['Rədd edilmiş',s.rejectedOrders||0],['Ümumi istifadəçi',s.totalUsers||0],['Yeni istifadəçi (bugün)',s.newUsersToday||0],['Yeni istifadəçi (həftə)',s.newUsersWeekly||0],['Yeni istifadəçi (ay)',s.newUsersMonthly||0],['Onlayn',s.onlineUsers||0],['Gözləyən balans',s.pendingBalance||0],['Gözləyən depozit',s.pendingDeposits||0]];document.getElementById('statGrid').innerHTML=cards.map(([l,v])=>\`<div class="card"><div style="color:#c9c9d1;font-size:13px">\${l}</div><div class="stat">\${v}</div></div>\`).join('');}catch(e){showError('Statistikalar yüklənmədi: '+e.message);showEmpty('statGrid','Məlumat yoxdur');}}
+async function loadCharts(){try{const range=document.getElementById('range').value;const data=await api('/api/admin/dashboard/charts?range='+range);const labels=data.dailySales.map(d=>d.day);const dailyRevenue=data.dailySales.map(d=>Number(d.revenue||0));const dailyOrders=data.dailySales.map(d=>Number(d.orders||0));const newUsers=data.newUsers.map(d=>Number(d.users||0));const statusLabels=data.orderStatusDistribution.map(d=>d.status_code);const statusValues=data.orderStatusDistribution.map(d=>Number(d.count||0));if(charts.daily)charts.daily.destroy();charts.daily=new Chart(document.getElementById('dailyChart'),{type:'bar',data:{labels,datasets:[{label:'Gəlir (₼)',data:dailyRevenue,backgroundColor:'#f1c40f'},{label:'Sifariş',data:dailyOrders,backgroundColor:'#6c4df4'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true}},plugins:{legend:{labels:{color:'#fff'}}}}});
+if(charts.status)charts.status.destroy();charts.status=new Chart(document.getElementById('statusChart'),{type:'doughnut',data:{labels:statusLabels,datasets:[{data:statusValues,backgroundColor:['#f1c40f','#6c4df4','#27ae60','#e74c3c']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#fff'}}}}});
+if(charts.users)charts.users.destroy();charts.users=new Chart(document.getElementById('usersChart'),{type:'line',data:{labels,datasets:[{label:'Yeni istifadəçilər',data:newUsers,borderColor:'#3498db',tension:0.3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#fff'}}},scales:{y:{beginAtZero:true}}}});
+if(data.topCategories&&data.topCategories.length){document.getElementById('topCategories').innerHTML=data.topCategories.map((c,i)=>\`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)"><span>#\${i+1} \${c.name||'Digər'}</span><span style="color:#f1c40f">₼ \${Number(c.revenue||0).toFixed(2)}</span></div>\`).join('');}else{showEmpty('topCategories','Hələ satış edilməyib');}}catch(e){showError('Qrafiklər yüklənmədi: '+e.message);showEmpty('dailyChartWrap','Məlumat yoxdur');showEmpty('statusChartWrap','Məlumat yoxdur');showEmpty('usersChartWrap','Məlumat yoxdur');showEmpty('topCategories','Məlumat yoxdur');}}
 async function loadAll(){await loadStats();await loadCharts();}
 loadAll();
 </script>`;
@@ -273,7 +362,7 @@ loadAll();
 }
 
 async function rDeposits(req,res,pool){
-  const a=await requireAdmin(req,res,pool);if(!a)return;
+  const a=await requireAdminPermission(req,res,pool,'deposits.view');if(!a)return;
   let flash=null;const url=new URL(req.url,`http://${req.headers.host}`);
   if(req.method==='POST'){const body=await readBody(req);const c=parseCookies(req);if(!body.csrf||body.csrf!==a.csrfToken)return sendHtml(res,419,'<h1>Etibarsız CSRF tokeni.</h1>');const id=String(body.id||''),action=String(body.action||''),note=String(body.note||'').trim();if(id&&(action==='approve'||action==='reject')){const client=await pool.connect();try{await client.query('BEGIN');const r=await client.query('SELECT*FROM deposit_requests WHERE id=$1 LIMIT 1 FOR UPDATE',[id]);const row=r.rows[0];if(!row)throw new Error('Sorğu tapılmadı');if(String(row.status).toLowerCase()!=='pending')throw new Error('Bu sorğu artıq emal edilib');if(action==='approve'){const amt=parseFloat(body.amount||0);if(!isFinite(amt)||amt<=0)throw new Error('Düzgün məbləğ daxil edin');await client.query('UPDATE users SET balance=balance+$1 WHERE id=$2',[amt,row.user_id]);await client.query("UPDATE deposit_requests SET status='approved',approved_at=NOW(),admin_note=$1 WHERE id=$2",[note||null,id]);const tid=crypto.randomBytes(16).toString('hex');await client.query('INSERT INTO transactions(id,user_id,amount,type,status,ref)VALUES($1,$2,$3,$4,$5,$6)',[tid,row.user_id,amt,'credit','approved','Deposit approved by admin (request '+row.id+')']);await createNotification(client,row.user_id,'Balans artırıldı','Hesabınıza '+amt.toFixed(2)+' ₼ əlavə olundu.','balance');ssePushState(row.user_id);recalcMembership(row.user_id);flash={type:'ok',msg:'Depozit təsdiqləndi və '+amt.toFixed(2)+' ₼ balansa əlavə olundu'};auditLog(pool,'admin_deposit_approved',{admin:a,req,targetType:'deposit_request',targetId:id,oldValue:{status:'pending'},newValue:{status:'approved',amount:amt},meta:{userId:row.user_id}});}else{await client.query("UPDATE deposit_requests SET status='rejected',approved_at=NOW(),admin_note=$1 WHERE id=$2",[note||null,id]);flash={type:'ok',msg:'Depozit sorğusu rədd edildi'};auditLog(pool,'admin_deposit_rejected',{admin:a,req,targetType:'deposit_request',targetId:id,oldValue:{status:'pending'},newValue:{status:'rejected'},meta:{userId:row.user_id}});}await client.query('COMMIT');}catch(e){await client.query('ROLLBACK').catch(()=>{});flash={type:'bad',msg:'Xəta: '+e.message};}finally{client.release();}}}
   const status=url.searchParams.get('status')||'pending';let sql='SELECT d.*,u.username,u.email FROM deposit_requests d LEFT JOIN users u ON u.id=d.user_id',params=[];if(status){sql+=' WHERE LOWER(d.status)=LOWER($1)';params.push(status);}sql+=' ORDER BY d.created_at DESC LIMIT 300';const{rows}=await pool.query(sql,params);
@@ -289,17 +378,17 @@ async function rDeposits(req,res,pool){
 }
 
 async function rUsers(req,res,pool){
-  const a=await requireAdmin(req,res,pool);if(!a)return;
+  const a=await requireAdminPermission(req,res,pool,'users.view');if(!a)return;
   let flash=null;const url=new URL(req.url,`http://${req.headers.host}`);
   if(req.method==='POST'){const body=await readBody(req);const c=parseCookies(req);if(!body.csrf||body.csrf!==a.csrfToken)return sendHtml(res,419,'<h1>Etibarsız CSRF tokeni.</h1>');const uid=String(body.user_id||''),amt=parseFloat(body.amount||0),reason=String(body.reason||'Admin adjustment').trim();if(uid&&amt!==0){const client=await pool.connect();try{await client.query('BEGIN');await client.query('UPDATE users SET balance=balance+$1 WHERE id=$2',[amt,uid]);const tid=crypto.randomBytes(16).toString('hex');await client.query('INSERT INTO transactions(id,user_id,amount,type,status,ref,description)VALUES($1,$2,$3,$4,$5,$6,$7)',[tid,uid,Math.abs(amt),amt>0?'credit':'debit','approved',reason,reason]);await createNotification(client,uid,(amt>0?'Balans artırıldı':'Balans azaldıldı'),'Hesabınız '+Math.abs(amt).toFixed(2)+' ₼ '+(amt>0?'əlavə edildi':'azaldıldı')+'.','balance');ssePushState(uid);auditLog(pool,'admin_balance_adjustment',{admin:a,req,targetType:'user',targetId:uid,oldValue:{balanceChange:0},newValue:{balanceChange:amt,reason},meta:{userId:uid}});await client.query('COMMIT');flash={type:'ok',msg:'Balans yeniləndi'};}catch(e){await client.query('ROLLBACK').catch(()=>{});flash={type:'bad',msg:'Xəta: '+e.message};}finally{client.release();}}}
-  const q=String(url.searchParams.get('q')||'').trim();const page=Math.max(1,parseInt(url.searchParams.get('page')||'1',10));const limit=50;const offset=(page-1)*limit;
+  const q=String(url.searchParams.get('q')||'').trim();const pageNum=Math.max(1,parseInt(url.searchParams.get('page')||'1',10));const limit=50;const offset=(pageNum-1)*limit;
   let sql='SELECT id,username,email,first_name,last_name,balance,status,membership_level,created_at FROM users WHERE deleted_at IS NULL',params=[],conds=[];if(q){conds.push('(LOWER(username) LIKE $1 OR LOWER(email) LIKE $1 OR id::text=$2)');params.push('%'+q.toLowerCase()+'%',q);}if(conds.length)sql+=' AND '+conds.join(' AND ');sql+=' ORDER BY created_at DESC LIMIT $'+(params.length+1)+' OFFSET $'+(params.length+2);params.push(limit,offset);
   const{rows:users}=await pool.query(sql,params);
   const countRes=await pool.query('SELECT COUNT(*)::int AS c FROM users WHERE deleted_at IS NULL'+(q?' AND (LOWER(username) LIKE $1 OR LOWER(email) LIKE $1 OR id::text=$2)':''),q?['%'+q.toLowerCase()+'%',q]:[]);
   const total=countRes.rows[0].c;const pages=Math.ceil(total/limit);
   const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);
   let tr='';for(const u of users){tr+=`<tr><td>${esc(u.id)}</td><td>${esc(u.username)}</td><td>${esc(u.email)}</td><td>${esc((u.first_name||'')+' '+(u.last_name||''))}</td><td>₼ ${parseFloat(u.balance||0).toFixed(2)}</td><td>${esc(u.membership_level||'standard')}</td><td>${esc(u.status||'active')}</td><td>${esc(u.created_at)}</td><td style="white-space:nowrap"><button onclick="viewUser('${esc(u.id)}')">Profil</button><form method="post" style="display:inline-flex;gap:6px;align-items:center;margin-left:6px"><input type="hidden" name="csrf" value="${esc(cs)}"/><input type="hidden" name="user_id" value="${esc(u.id)}"/><input type="number" step="0.01" name="amount" placeholder="+/-" style="width:80px"/><input type="text" name="reason" placeholder="Qeyd" style="width:90px"/><button type="submit">Balans</button></form></td></tr>`;}
-  let pagination='';if(pages>1){const prev=page>1?`<a href="?q=${esc(q)}&page=${page-1}" class="btn">← Əvvəlki</a>`:'';const next=page<pages?`<a href="?q=${esc(q)}&page=${page+1}" class="btn">Sonrakı →</a>`:'';pagination=`<div class="card" style="display:flex;justify-content:space-between;align-items:center">${prev}<span>Səhifə ${page} / ${pages} (cəmi ${total})</span>${next}</div>`;}
+  let pagination='';if(pages>1){const prev=pageNum>1?`<a href="?q=${esc(q)}&page=${pageNum-1}" class="btn">← Əvvəlki</a>`:'';const next=pageNum<pages?`<a href="?q=${esc(q)}&page=${pageNum+1}" class="btn">Sonrakı →</a>`:'';pagination=`<div class="card" style="display:flex;justify-content:space-between;align-items:center">${prev}<span>Səhifə ${pageNum} / ${pages} (cəmi ${total})</span>${next}</div>`;}
   const content=`<form method="get" class="card"><input type="text" name="q" value="${esc(q)}" placeholder="Axtarış: username, email və ya ID" style="width:100%"/></form><div class="card"><table><thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Ad</th><th>Balans</th><th>Üzvlük</th><th>Status</th><th>Tarix</th><th>Əməliyyat</th></tr></thead><tbody>${tr}</tbody></table></div>${pagination}
 <dialog id="um" style="width:min(600px,96vw)"><div id="ucontent">Yüklənir...</div><div class="row-end"><button type="button" onclick="document.getElementById('um').close()">Bağla</button></div></dialog>
 <script>
@@ -326,7 +415,7 @@ document.getElementById('editUser').addEventListener('submit',async e=>{e.preven
 }
 
 async function rCategories(req,res,pool){
-  const a=await requireAdmin(req,res,pool);if(!a)return;
+  const a=await requireAdminPermission(req,res,pool,'categories.view');if(!a)return;
   const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);
   const statusBadge = (s)=>{
     const m={active:'b-approved',hidden:'b-pending',draft:'b-pending',archived:'b-rejected'};
@@ -551,7 +640,7 @@ loadCategories();
 }
 
 async function rProducts(req, res, pool) {
-  const a = await requireAdmin(req, res, pool); if (!a) return;
+  const a = await requireAdminPermission(req, res, pool, 'products.view'); if (!a) return;
   let flash = null;
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -629,7 +718,7 @@ async function runBulk(){const ids=[...document.querySelectorAll('.pchk:checked'
 
 
 async function rOrders(req,res,pool){
-  const a=await requireAdmin(req,res,pool);if(!a)return;
+  const a=await requireAdminPermission(req,res,pool,'orders.view');if(!a)return;
   let flash=null;const url=new URL(req.url,`http://${req.headers.host}`);
   const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);
   const q=String(url.searchParams.get('q')||'').trim(),status=String(url.searchParams.get('status')||'');
@@ -651,7 +740,7 @@ document.getElementById('of').addEventListener('submit',async e=>{e.preventDefau
 }
 
 async function rBalanceRequests(req,res,pool){
-  const a=await requireAdmin(req,res,pool);if(!a)return;
+  const a=await requireAdminPermission(req,res,pool,'balance.view');if(!a)return;
   let flash=null;
   if(req.method==='POST'){const body=await readBody(req);const c=parseCookies(req);if(!body.csrf||body.csrf!==a.csrfToken)return sendHtml(res,419,'<h1>Etibarsız CSRF tokeni.</h1>');const id=String(body.id||''),action=String(body.action||'');if(id&&(action==='approve'||action==='reject')){const client=await pool.connect();try{await client.query('BEGIN');const r=await client.query('SELECT*FROM balance_requests WHERE id=$1 LIMIT 1',[id]);const row=r.rows[0];if(row){if(action==='approve'&&String(row.status).toLowerCase()==='pending'){await client.query('UPDATE users SET balance=balance+$1 WHERE id=$2',[row.amount,row.user_id]);const tid=crypto.randomBytes(16).toString('hex');await client.query('INSERT INTO transactions(id,user_id,amount,type,status,ref)VALUES($1,$2,$3,$4,$5,$6)',[tid,row.user_id,parseFloat(row.amount),'credit','approved','Balance request '+row.id]);await client.query("UPDATE balance_requests SET status='approved',reviewed_by=$1,reviewed_at=NOW() WHERE id=$2",[String(a.id),id]);await createNotification(client,row.user_id,'Balans artırıldı','Hesabınıza '+parseFloat(row.amount).toFixed(2)+' ₼ əlavə olundu.','balance');ssePushState(row.user_id);flash={type:'ok',msg:'Sorğu təsdiqləndi və balans artırıldı'};}else if(action==='reject'&&String(row.status).toLowerCase()==='pending'){await client.query("UPDATE balance_requests SET status='rejected',reviewed_by=$1,reviewed_at=NOW() WHERE id=$2",[String(a.id),id]);flash={type:'ok',msg:'Sorğu rədd edildi'};}}await client.query('COMMIT');}catch(e){await client.query('ROLLBACK').catch(()=>{});flash={type:'bad',msg:'Xəta: '+e.message};}finally{client.release();}}}
   const url=new URL(req.url,`http://${req.headers.host}`);const status=url.searchParams.get('status')||'pending';let sql='SELECT*FROM balance_requests',params=[];if(status){sql+=' WHERE LOWER(status)=LOWER($1)';params.push(status);}sql+=' ORDER BY created_at DESC LIMIT 300';const{rows}=await pool.query(sql,params);
@@ -662,7 +751,7 @@ async function rBalanceRequests(req,res,pool){
 }
 
 async function rAvatars(req,res,pool){
-  const a=await requireAdmin(req,res,pool);if(!a)return;
+  const a=await requireAdminPermission(req,res,pool,'avatars.view');if(!a)return;
   let flash=null;
   if(req.method==='POST'){const body=await readBody(req);const c=parseCookies(req);if(!body.csrf||body.csrf!==a.csrfToken)return sendHtml(res,419,'<h1>Etibarsız CSRF tokeni.</h1>');const id=String(body.id||''),action=String(body.action||'');if(id&&(action==='approve'||action==='reject')){const r=await pool.query('SELECT*FROM avatar_requests WHERE id=$1 LIMIT 1',[id]);const row=r.rows[0];if(row){if(action==='approve'&&String(row.status).toLowerCase()==='pending'){await pool.query("UPDATE avatar_requests SET status='approved',approved_by=$1,approved_at=NOW() WHERE id=$2",[String(a.id),id]);await pool.query('UPDATE users SET profile_image_url=$1 WHERE id=$2',[row.image_url,row.user_id]);flash={type:'ok',msg:'Təsdiqləndi'};}else if(action==='reject'&&String(row.status).toLowerCase()==='pending'){await pool.query("UPDATE avatar_requests SET status='rejected',approved_by=$1,approved_at=NOW() WHERE id=$2",[String(a.id),id]);flash={type:'ok',msg:'Rədd edildi'};}}}}
   const url=new URL(req.url,`http://${req.headers.host}`);const status=url.searchParams.get('status')||'pending';let sql='SELECT*FROM avatar_requests',params=[];if(status){sql+=' WHERE LOWER(status)=LOWER($1)';params.push(status);}sql+=' ORDER BY created_at DESC LIMIT 300';const{rows}=await pool.query(sql,params);
@@ -673,7 +762,7 @@ async function rAvatars(req,res,pool){
 }
 
 async function rReceipt(req,res,pool){
-  const a=await requireAdmin(req,res,pool);if(!a)return;
+  const a=await requireAdminPermission(req,res,pool,'deposits.view');if(!a)return;
   const url=new URL(req.url,`http://${req.headers.host}`);
   const file=String(url.searchParams.get('file')||'');
   if(!file||file!==path.basename(file)||file.includes('\0')){res.writeHead(400);res.end('Etibarsız fayl adı');return;}
@@ -692,13 +781,13 @@ async function rReceipt(req,res,pool){
   res.end(data);
 }
 
-async function rAuditLogs(req,res,pool){const a=await requireAdmin(req,res,pool);if(!a)return;const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);const content=`<main class="wrap"><h2 style="font-family:Orbitron,sans-serif">Audit Log</h2><div class="card"><div id="logGrid">Yüklənir...</div></div></main><script>async function load(){const r=await fetch('/api/admin/audit-logs',{headers:{'X-CSRF-Token':'${esc(cs)}'}});const j=await r.json();const rows=(j.logs||[]).map(l=>\`<tr><td>\${new Date(l.created_at).toLocaleString('az')}</td><td>\${l.admin_username||'—'}</td><td>\${l.action}</td><td>\${l.target_type||'—'} \${l.target_id||'—'}</td><td><pre style="margin:0;white-space:pre-wrap;max-width:300px;font-size:11px">\${JSON.stringify(l.new_value||{},null,2)}</pre></td></tr>\`).join('');document.getElementById('logGrid').innerHTML='<table><thead><tr><th>Tarix</th><th>Admin</th><th>Əməliyyat</th><th>Target</th><th>Yeni dəyər</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" style="color:#9a9aa6">Məlumat yoxdur</td></tr>')+'</tbody></table>';}load();</script>`;sendHtml(res,200,page('Audit Log',nav('/admin/audit-logs'),content));}
+async function rAuditLogs(req,res,pool){const a=await requireAdminPermission(req,res,pool,'audit_logs.view');if(!a)return;const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);const content=`<main class="wrap"><h2 style="font-family:Orbitron,sans-serif">Audit Log</h2><div class="card"><div id="logGrid">Yüklənir...</div></div></main><script>async function load(){const r=await fetch('/api/admin/audit-logs',{headers:{'X-CSRF-Token':'${esc(cs)}'}});const j=await r.json();const rows=(j.logs||[]).map(l=>\`<tr><td>\${new Date(l.created_at).toLocaleString('az')}</td><td>\${l.admin_username||'—'}</td><td>\${l.action}</td><td>\${l.target_type||'—'} \${l.target_id||'—'}</td><td><pre style="margin:0;white-space:pre-wrap;max-width:300px;font-size:11px">\${JSON.stringify(l.new_value||{},null,2)}</pre></td></tr>\`).join('');document.getElementById('logGrid').innerHTML='<table><thead><tr><th>Tarix</th><th>Admin</th><th>Əməliyyat</th><th>Target</th><th>Yeni dəyər</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" style="color:#9a9aa6">Məlumat yoxdur</td></tr>')+'</tbody></table>';}load();</script>`;sendHtml(res,200,page('Audit Log',nav('/admin/audit-logs'),content));}
 
-async function rCampaigns(req,res,pool){const a=await requireAdmin(req,res,pool);if(!a)return;const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);const content=`<main class="wrap"><h2 style="font-family:Orbitron,sans-serif">Kampaniyalar</h2><div class="card"><form id="f"><input type="hidden" name="csrf" value="${esc(cs)}"/><label>Ad</label><input name="name" required/><label>Tip</label><select name="type"><option value="percentage">Faiz</option><option value="fixed">Sabit</option></select><label>Dəyər</label><input name="value" type="number" step="0.01" required/><label>Start</label><input name="startDate" type="datetime-local"/><label>End</label><input name="endDate" type="datetime-local"/><label>Target Type</label><select name="targetType"><option value="all">Hamısı</option><option value="categories">Kateqoriyalar</option><option value="products">Məhsullar</option><option value="membership">Üzvlük</option></select><label>VIP Only</label><input name="vipOnly" type="checkbox"/><label>Premium Only</label><input name="premiumOnly" type="checkbox"/><button type="submit">Yarat</button></form></div><div class="card"><div id="list">Yüklənir...</div></div></main><script>async function api(u,o){o.headers=o.headers||{};o.headers['X-CSRF-Token']='${esc(cs)}';if(o.body&&typeof o.body==='object'){o.headers['Content-Type']='application/json';o.body=JSON.stringify(o.body);}const r=await fetch(u,o);return r.json();}async function load(){const j=await api('/api/admin/campaigns',{});document.getElementById('list').innerHTML=(j.campaigns||[]).map(c=>\`<div class="card"><b>\${c.name}</b> — \${c.type} \${c.value} — \${c.active?'Aktiv':'Deaktiv'}</div>\`).join('')||'Kampaniya yoxdur';}document.getElementById('f').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);const body={};for(const [k,v] of fd.entries()){if(k==='vipOnly'||k==='premiumOnly'){body[k]=v==='on';}else if(k==='value'){body[k]=parseFloat(v);}else{body[k]=v;}}await api('/api/admin/campaigns',{method:'POST',body});e.target.reset();load();});load();</script>`;sendHtml(res,200,page('Kampaniyalar',nav('/admin/campaigns'),content));}
+async function rCampaigns(req,res,pool){const a=await requireAdminPermission(req,res,pool,'campaigns.view');if(!a)return;const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);const content=`<main class="wrap"><h2 style="font-family:Orbitron,sans-serif">Kampaniyalar</h2><div class="card"><form id="f"><input type="hidden" name="csrf" value="${esc(cs)}"/><label>Ad</label><input name="name" required/><label>Tip</label><select name="type"><option value="percentage">Faiz</option><option value="fixed">Sabit</option></select><label>Dəyər</label><input name="value" type="number" step="0.01" required/><label>Start</label><input name="startDate" type="datetime-local"/><label>End</label><input name="endDate" type="datetime-local"/><label>Target Type</label><select name="targetType"><option value="all">Hamısı</option><option value="categories">Kateqoriyalar</option><option value="products">Məhsullar</option><option value="membership">Üzvlük</option></select><label>VIP Only</label><input name="vipOnly" type="checkbox"/><label>Premium Only</label><input name="premiumOnly" type="checkbox"/><button type="submit">Yarat</button></form></div><div class="card"><div id="list">Yüklənir...</div></div></main><script>async function api(u,o){o.headers=o.headers||{};o.headers['X-CSRF-Token']='${esc(cs)}';if(o.body&&typeof o.body==='object'){o.headers['Content-Type']='application/json';o.body=JSON.stringify(o.body);}const r=await fetch(u,o);return r.json();}async function load(){const j=await api('/api/admin/campaigns',{});document.getElementById('list').innerHTML=(j.campaigns||[]).map(c=>\`<div class="card"><b>\${c.name}</b> — \${c.type} \${c.value} — \${c.active?'Aktiv':'Deaktiv'}</div>\`).join('')||'Kampaniya yoxdur';}document.getElementById('f').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);const body={};for(const [k,v] of fd.entries()){if(k==='vipOnly'||k==='premiumOnly'){body[k]=v==='on';}else if(k==='value'){body[k]=parseFloat(v);}else{body[k]=v;}}await api('/api/admin/campaigns',{method:'POST',body});e.target.reset();load();});load();</script>`;sendHtml(res,200,page('Kampaniyalar',nav('/admin/campaigns'),content));}
 
-async function rMessages(req,res,pool){const a=await requireAdmin(req,res,pool);if(!a)return;const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);const content=`<main class="wrap"><h2 style="font-family:Orbitron,sans-serif">Mesajlar</h2><div class="card"><form id="f"><input type="hidden" name="csrf" value="${esc(cs)}"/><label>User ID</label><input name="userId" placeholder="Boş burax = bütün istifadəçilər"/><label>Başlıq</label><input name="title" required/><label>Məzmun</label><textarea name="content" rows="4" required></textarea><label>Prioritet</label><select name="priority"><option value="normal">Normal</option><option value="high">Yüksək</option><option value="urgent">Təcili</option></select><button type="submit">Göndər</button></form></div></main><script>async function api(u,o){o.headers=o.headers||{};o.headers['X-CSRF-Token']='${esc(cs)}';if(o.body&&typeof o.body==='object'){o.headers['Content-Type']='application/json';o.body=JSON.stringify(o.body);}const r=await fetch(u,o);return r.json();}document.getElementById('f').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);const body={userId:fd.get('userId')||null,title:fd.get('title'),content:fd.get('content'),priority:fd.get('priority')};if(!body.userId){body.userIds=[];delete body.userId;}else{body.userIds=[body.userId];delete body.userId;}const j=await api('/api/admin/messages',{method:'POST',body});alert(j.sent+' istifadəçiyə göndərildi');e.target.reset();});</script>`;sendHtml(res,200,page('Mesajlar',nav('/admin/messages'),content));}
+async function rMessages(req,res,pool){const a=await requireAdminPermission(req,res,pool,'messages.view');if(!a)return;const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);const content=`<main class="wrap"><h2 style="font-family:Orbitron,sans-serif">Mesajlar</h2><div class="card"><form id="f"><input type="hidden" name="csrf" value="${esc(cs)}"/><label>User ID</label><input name="userId" placeholder="Boş burax = bütün istifadəçilər"/><label>Başlıq</label><input name="title" required/><label>Məzmun</label><textarea name="content" rows="4" required></textarea><label>Prioritet</label><select name="priority"><option value="normal">Normal</option><option value="high">Yüksək</option><option value="urgent">Təcili</option></select><button type="submit">Göndər</button></form></div></main><script>async function api(u,o){o.headers=o.headers||{};o.headers['X-CSRF-Token']='${esc(cs)}';if(o.body&&typeof o.body==='object'){o.headers['Content-Type']='application/json';o.body=JSON.stringify(o.body);}const r=await fetch(u,o);return r.json();}document.getElementById('f').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);const body={userId:fd.get('userId')||null,title:fd.get('title'),content:fd.get('content'),priority:fd.get('priority')};if(!body.userId){body.userIds=[];delete body.userId;}else{body.userIds=[body.userId];delete body.userId;}const j=await api('/api/admin/messages',{method:'POST',body});alert(j.sent+' istifadəçiyə göndərildi');e.target.reset();});</script>`;sendHtml(res,200,page('Mesajlar',nav('/admin/messages'),content));}
 
-async function rAnnouncements(req,res,pool){const a=await requireAdmin(req,res,pool);if(!a)return;const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);const content=`<main class="wrap"><h2 style="font-family:Orbitron,sans-serif">Elanlar</h2><div class="card"><form id="f"><input type="hidden" name="csrf" value="${esc(cs)}"/><label>Başlıq</label><input name="title" required/><label>Məzmun</label><textarea name="content" rows="4" required></textarea><label>Tip</label><select name="type"><option value="info">Info</option><option value="warning">Xəbərdarlıq</option><option value="maintenance">Texniki iş</option><option value="campaign">Kampaniya</option><option value="emergency">Təcili</option></select><label>Hədəflə</label><select name="targetAudience"><option value="all">Hamısı</option><option value="vip">VIP</option><option value="premium">Premium</option></select><button type="submit">Yarat</button></form></div></main><script>async function api(u,o){o.headers=o.headers||{};o.headers['X-CSRF-Token']='${esc(cs)}';if(o.body&&typeof o.body==='object'){o.headers['Content-Type']='application/json';o.body=JSON.stringify(o.body);}const r=await fetch(u,o);return r.json();}document.getElementById('f').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);const body={};for(const [k,v] of fd.entries())body[k]=v;const j=await api('/api/admin/announcements',{method:'POST',body});alert('Elan yaradıldı');e.target.reset();});</script>`;sendHtml(res,200,page('Elanlar',nav('/admin/announcements'),content));}
+async function rAnnouncements(req,res,pool){const a=await requireAdminPermission(req,res,pool,'announcements.view');if(!a)return;const cs=a.csrfToken;setCookie(res,'admin_csrf',cs,ADMIN_SESSION_MAX_AGE_SECONDS);const content=`<main class="wrap"><h2 style="font-family:Orbitron,sans-serif">Elanlar</h2><div class="card"><form id="f"><input type="hidden" name="csrf" value="${esc(cs)}"/><label>Başlıq</label><input name="title" required/><label>Məzmun</label><textarea name="content" rows="4" required></textarea><label>Tip</label><select name="type"><option value="info">Info</option><option value="warning">Xəbərdarlıq</option><option value="maintenance">Texniki iş</option><option value="campaign">Kampaniya</option><option value="emergency">Təcili</option></select><label>Hədəflə</label><select name="targetAudience"><option value="all">Hamısı</option><option value="vip">VIP</option><option value="premium">Premium</option></select><button type="submit">Yarat</button></form></div></main><script>async function api(u,o){o.headers=o.headers||{};o.headers['X-CSRF-Token']='${esc(cs)}';if(o.body&&typeof o.body==='object'){o.headers['Content-Type']='application/json';o.body=JSON.stringify(o.body);}const r=await fetch(u,o);return r.json();}document.getElementById('f').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);const body={};for(const [k,v] of fd.entries())body[k]=v;const j=await api('/api/admin/announcements',{method:'POST',body});alert('Elan yaradıldı');e.target.reset();});</script>`;sendHtml(res,200,page('Elanlar',nav('/admin/announcements'),content));}
 
 module.exports = {
   ensureAdminSchema,
@@ -729,5 +818,9 @@ module.exports = {
   nav,
   page,
   getAdmin,
-  requireAdmin
+  requireAdmin,
+  getAdminRolePermissions,
+  hasAdminPermission,
+  requireAdminPermission,
+  sendForbidden
 };

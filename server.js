@@ -118,7 +118,7 @@ async function listMyAvatarRequests(request, response) {
 }
 
 async function adminListAvatarRequests(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'avatars.view'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const status = (url.searchParams.get('status') || '').trim().toLowerCase();
   let sql = 'SELECT * FROM avatar_requests';
@@ -130,7 +130,7 @@ async function adminListAvatarRequests(request, response) {
 }
 
 async function adminApproveAvatar(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'avatars.manage'); if (!admin) return;
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const requestId = String(body.requestId || body.id || '').trim();
   const approve = body.approve !== false; // default approve
@@ -147,7 +147,7 @@ async function adminApproveAvatar(request, response) {
 }
 
 async function adminAdjustBalance(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'users.balance'); if (!admin) return;
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const userId = String(body.userId || body.user_id || '').trim();
   const amount = Number(body.amount || 0);
@@ -644,7 +644,7 @@ async function categoryProducts(request, response, slug) {
 }
 
 async function adminCreateProduct(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'products.manage'); if (!admin) return;
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const id = crypto.randomUUID();
   const {
@@ -665,7 +665,7 @@ async function adminCreateProduct(request, response) {
 }
 
 async function adminUpdateProduct(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'products.manage'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const id = url.searchParams.get('id') || '';
   if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
@@ -702,7 +702,7 @@ async function adminUpdateProduct(request, response) {
 }
 
 async function adminDeleteProduct(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'products.manage'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const id = url.searchParams.get('id') || '';
   if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
@@ -711,7 +711,7 @@ async function adminDeleteProduct(request, response) {
 }
 
 async function adminProductsList(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'products.view'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const q = (url.searchParams.get('q') || '').trim().toLowerCase();
   const cat = (url.searchParams.get('category') || '').trim();
@@ -727,7 +727,7 @@ async function adminProductsList(request, response) {
 }
 
 async function adminCategoriesList(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'categories.view'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const q = (url.searchParams.get('q') || '').trim().toLowerCase();
   let sql = `SELECT c.*,
@@ -748,7 +748,7 @@ async function adminCategoriesList(request, response) {
 }
 
 async function adminCreateCategory(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'categories.manage'); if (!admin) return;
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const name = String(body.name || '').trim();
   if (!name) return sendJson(response, 400, { message: 'Ad tələb olunur.' });
@@ -785,7 +785,7 @@ async function adminCreateCategory(request, response) {
 }
 
 async function adminUpdateCategory(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'categories.manage'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const id = url.searchParams.get('id') || '';
   if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
@@ -840,7 +840,7 @@ async function adminUpdateCategory(request, response) {
 }
 
 async function adminDeleteCategory(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'categories.manage'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const id = url.searchParams.get('id') || '';
   if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
@@ -852,7 +852,7 @@ async function adminDeleteCategory(request, response) {
 }
 
 async function adminUploadImage(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'products.manage'); if (!admin) return;
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const dataUrl = String(body.image || '');
   const folder = String(body.folder || 'images').replace(/[^a-zA-Z0-9_-]/g, '');
@@ -873,7 +873,7 @@ async function adminUploadImage(request, response) {
 }
 
 async function adminDuplicateCategory(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'categories.manage'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const id = url.searchParams.get('id') || '';
   if (!id) return sendJson(response, 400, { message: 'id tələb olunur' });
@@ -1043,7 +1043,7 @@ async function listMyOrders(request, response) {
 }
 
 async function adminListOrders(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'orders.view'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const q = (url.searchParams.get('q') || '').trim().toLowerCase();
   const status = (url.searchParams.get('status') || '').trim().toLowerCase();
@@ -1067,7 +1067,7 @@ async function adminListOrders(request, response) {
 }
 
 async function adminUpdateOrderStatus(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'orders.manage'); if (!admin) return;
   if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const orderId = String(body.orderId || '').trim();
@@ -1126,7 +1126,7 @@ async function adminUpdateOrderStatus(request, response) {
 }
 
 async function adminListCoupons(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'coupons.view'); if (!admin) return;
   const { rows } = await pool.query(
     `SELECT c.*,
             (SELECT COUNT(*) FROM user_coupons WHERE coupon_id = c.id) AS assigned_count
@@ -1136,7 +1136,7 @@ async function adminListCoupons(request, response) {
 }
 
 async function adminCreateCoupon(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'coupons.manage'); if (!admin) return;
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const code = String(body.code || '').trim().toUpperCase();
   const discountType = String(body.discountType || body.discount_type || '').trim().toLowerCase();
@@ -1182,7 +1182,7 @@ async function adminCreateCoupon(request, response) {
 }
 
 async function adminAssignCoupon(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'coupons.manage'); if (!admin) return;
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const couponId = String(body.couponId || body.coupon_id || '').trim();
   const userIds = Array.isArray(body.userIds) ? body.userIds : [];
@@ -1204,14 +1204,14 @@ async function adminAssignCoupon(request, response) {
 }
 
 async function adminDeleteCoupon(request, response, id) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'coupons.manage'); if (!admin) return;
   if (!id) return sendJson(response, 400, { message: 'Kupon ID tələb olunur.' });
   await pool.query('DELETE FROM coupons WHERE id = $1', [id]);
   sendJson(response, 200, { message: 'Kupon silindi.' });
 }
 
 async function adminListUsers(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'users.view'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const q = (url.searchParams.get('q') || '').trim().toLowerCase();
   if (q) {
@@ -1256,7 +1256,7 @@ function parseDateRange(request) {
 }
 
 async function adminDashboardStats(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'dashboard'); if (!admin) return;
   const { start, end } = parseDateRange(request);
   const startIso = start.toISOString();
   const endIso = end.toISOString();
@@ -1264,6 +1264,8 @@ async function adminDashboardStats(request, response) {
   const queries = {
     totalUsers: `SELECT COUNT(*)::int AS c FROM users WHERE deleted_at IS NULL`,
     newUsersToday: `SELECT COUNT(*)::int AS c FROM users WHERE created_at >= $1 AND created_at <= $2`,
+    newUsersWeekly: `SELECT COUNT(*)::int AS c FROM users WHERE created_at >= NOW() - INTERVAL '7 days'`,
+    newUsersMonthly: `SELECT COUNT(*)::int AS c FROM users WHERE created_at >= NOW() - INTERVAL '30 days'`,
     onlineUsers: `SELECT COUNT(DISTINCT user_id)::int AS c FROM sessions WHERE last_active_at >= NOW() - INTERVAL '15 minutes'`,
     totalOrders: `SELECT COUNT(*)::int AS c FROM orders`,
     todayOrders: `SELECT COUNT(*)::int AS c FROM orders WHERE created_at >= $1 AND created_at <= $2`,
@@ -1291,27 +1293,27 @@ async function adminDashboardStats(request, response) {
 }
 
 async function adminDashboardCharts(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'dashboard'); if (!admin) return;
   const { start, end } = parseDateRange(request);
   const startIso = start.toISOString();
   const endIso = end.toISOString();
 
   const dailySales = await pool.query(
-    `SELECT DATE(created_at) AS day, COUNT(*)::int AS orders, COALESCE(SUM(total_amount),0)::numeric AS revenue
+    `SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS day, COUNT(*)::int AS orders, COALESCE(SUM(total_amount),0)::numeric AS revenue
      FROM orders WHERE created_at >= $1 AND created_at <= $2
      GROUP BY DATE(created_at) ORDER BY day`,
     [startIso, endIso]
   );
 
   const monthlyRevenue = await pool.query(
-    `SELECT DATE_TRUNC('month', created_at) AS month, COALESCE(SUM(total_amount),0)::numeric AS revenue
+    `SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month, COALESCE(SUM(total_amount),0)::numeric AS revenue
      FROM orders WHERE status_code = 'completed' AND created_at >= $1 AND created_at <= $2
      GROUP BY DATE_TRUNC('month', created_at) ORDER BY month`,
     [startIso, endIso]
   );
 
   const newUsers = await pool.query(
-    `SELECT DATE(created_at) AS day, COUNT(*)::int AS users
+    `SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS day, COUNT(*)::int AS users
      FROM users WHERE created_at >= $1 AND created_at <= $2
      GROUP BY DATE(created_at) ORDER BY day`,
     [startIso, endIso]
@@ -1325,10 +1327,10 @@ async function adminDashboardCharts(request, response) {
   );
 
   const topCategories = await pool.query(
-    `SELECT c.name, COUNT(*)::int AS orders, COALESCE(SUM(o.total_amount),0)::numeric AS revenue
+    `SELECT COALESCE(c.name, o.game, 'Digər') AS name, COUNT(*)::int AS orders, COALESCE(SUM(o.total_amount),0)::numeric AS revenue
      FROM orders o LEFT JOIN categories c ON c.name = o.game
-     WHERE o.created_at >= $1 AND o.created_at <= $2
-     GROUP BY c.name ORDER BY revenue DESC LIMIT 10`,
+     WHERE o.status_code = 'completed' AND o.created_at >= $1 AND o.created_at <= $2
+     GROUP BY c.name, o.game ORDER BY revenue DESC LIMIT 10`,
     [startIso, endIso]
   );
 
@@ -1344,7 +1346,7 @@ async function adminDashboardCharts(request, response) {
 }
 
 async function adminAuditLogs(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'audit_logs.view'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
   const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
@@ -1367,7 +1369,7 @@ async function adminAuditLogs(request, response) {
 }
 
 async function adminGetUser(request, response, id) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'users.view'); if (!admin) return;
   if (!id) return sendJson(response, 400, { success: false, message: 'ID tələb olunur.' });
   const { rows: users } = await pool.query('SELECT * FROM users WHERE id = $1 LIMIT 1', [id]);
   if (!users.length) return sendJson(response, 404, { success: false, message: 'İstifadəçi tapılmadı.' });
@@ -1409,7 +1411,7 @@ async function adminGetUser(request, response, id) {
 }
 
 async function adminUpdateUser(request, response, id) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'users.manage'); if (!admin) return;
   if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
   if (!id) return sendJson(response, 400, { success: false, message: 'ID tələb olunur.' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
@@ -1434,7 +1436,7 @@ async function adminUpdateUser(request, response, id) {
 }
 
 async function adminAdjustUserBalance(request, response, id) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'users.balance'); if (!admin) return;
   if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
   if (!id) return sendJson(response, 400, { success: false, message: 'ID tələb olunur.' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
@@ -1455,7 +1457,7 @@ async function adminAdjustUserBalance(request, response, id) {
 }
 
 async function adminSendUserMessage(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'messages.manage'); if (!admin) return;
   if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const userIds = Array.isArray(body.userIds) ? body.userIds : (body.userId ? [body.userId] : []);
@@ -1476,7 +1478,7 @@ async function adminSendUserMessage(request, response) {
 }
 
 async function adminCreateAnnouncement(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'announcements.manage'); if (!admin) return;
   if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const title = String(body.title || '').trim();
@@ -1512,13 +1514,13 @@ async function adminCreateAnnouncement(request, response) {
 }
 
 async function adminListAnnouncements(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'announcements.view'); if (!admin) return;
   const { rows } = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC');
   sendJson(response, 200, { success: true, announcements: rows });
 }
 
 async function adminCreateCampaign(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'campaigns.manage'); if (!admin) return;
   if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const name = String(body.name || '').trim();
@@ -1548,13 +1550,13 @@ async function adminCreateCampaign(request, response) {
 }
 
 async function adminListCampaigns(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'campaigns.view'); if (!admin) return;
   const { rows } = await pool.query('SELECT * FROM campaigns ORDER BY created_at DESC');
   sendJson(response, 200, { success: true, campaigns: rows });
 }
 
 async function adminListMessages(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'messages.view'); if (!admin) return;
   const url = new URL(request.url, `http://${request.headers.host}`);
   const userId = (url.searchParams.get('userId') || '').trim();
   let sql = 'SELECT m.*, u.username AS recipient_name FROM messages m LEFT JOIN users u ON u.id = m.recipient_id';
@@ -1566,7 +1568,7 @@ async function adminListMessages(request, response) {
 }
 
 async function adminBulkProductAction(request, response) {
-  const admin = await requireAdmin(request, response); if (!admin) return;
+  const admin = await requireAdminApi(request, response, 'products.manage'); if (!admin) return;
   if (!verifyAdminCsrf(request)) return sendJson(response, 403, { success: false, message: 'CSRF token etibarsızdır.' });
   const body = JSON.parse(await readRequestBody(request) || '{}');
   const ids = Array.isArray(body.ids) ? body.ids : [];
@@ -2282,14 +2284,18 @@ function signJwt(userId, remember = true) {
 function isAdmin(user) { return Boolean(user.is_admin); }
 
 async function requireAdmin(request, response) {
-  // Prefer admin-routes JWT session
   const adminUser = await admin.getAdmin(request, pool);
-  if (adminUser) return adminUser;
-  // Fall back to user flag for compatibility
-  const user = await requireUser(request, response);
-  if (!user) return null;
-  if (!isAdmin(user)) { sendJson(response, 403, { message: 'İcazə yoxdur' }); return null; }
-  return user;
+  if (!adminUser) { sendJson(response, 403, { message: 'İcazə yoxdur', redirect: '/admin/login' }); return null; }
+  return adminUser;
+}
+
+async function requireAdminApi(request, response, permission) {
+  const adminUser = await admin.getAdmin(request, pool);
+  if (!adminUser) { sendJson(response, 403, { message: 'İcazə yoxdur', redirect: '/admin/login' }); return null; }
+  if (!permission) return adminUser;
+  const ok = await admin.hasAdminPermission(pool, adminUser, permission);
+  if (!ok) { sendJson(response, 403, { message: 'İcazə yoxdur', permission }); return null; }
+  return adminUser;
 }
 
 function verifyAdminCsrf(request) {
@@ -2895,30 +2901,30 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/api/admin/products') return await adminCreateProduct(request, response);
     if (request.method === 'PUT' && request.url.startsWith('/api/admin/products')) return await adminUpdateProduct(request, response);
     if (request.method === 'DELETE' && request.url.startsWith('/api/admin/products')) return await adminDeleteProduct(request, response);
-    if (request.method === 'GET' && request.url === '/api/admin/categories') return await adminCategoriesList(request, response);
-    if (request.method === 'GET' && request.url === '/api/admin/products') return await adminProductsList(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/categories')) return await adminCategoriesList(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/products')) return await adminProductsList(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/categories') return await adminCreateCategory(request, response);
     if (request.method === 'POST' && request.url.startsWith('/api/admin/categories/duplicate')) return await adminDuplicateCategory(request, response);
     if (request.method === 'PUT' && request.url.startsWith('/api/admin/categories')) return await adminUpdateCategory(request, response);
     if (request.method === 'DELETE' && request.url.startsWith('/api/admin/categories')) return await adminDeleteCategory(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/upload') return await adminUploadImage(request, response);
-    if (request.method === 'GET' && request.url === '/api/admin/orders') return await adminListOrders(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/orders')) return await adminListOrders(request, response);
     if (request.method === 'PUT' && request.url === '/api/admin/orders/status') return await adminUpdateOrderStatus(request, response);
-    if (request.method === 'GET' && request.url === '/api/admin/users') return await adminListUsers(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/users')) return await adminListUsers(request, response);
     if (request.method === 'GET' && /^\/api\/admin\/users\/[^/]+$/.test(request.url)) return await adminGetUser(request, response, decodeURIComponent(request.url.split('/').pop()));
     if (request.method === 'PUT' && /^\/api\/admin\/users\/[^/]+$/.test(request.url)) return await adminUpdateUser(request, response, decodeURIComponent(request.url.split('/').pop()));
     if (request.method === 'POST' && /^\/api\/admin\/users\/[^/]+\/balance$/.test(request.url)) return await adminAdjustUserBalance(request, response, decodeURIComponent(request.url.split('/')[4]));
     if (request.method === 'POST' && request.url === '/api/cart/checkout') return await cartCheckout(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/balance/adjust') return await adminAdjustBalance(request, response);
-    if (request.method === 'GET' && request.url === '/api/admin/dashboard/stats') return await adminDashboardStats(request, response);
-    if (request.method === 'GET' && request.url === '/api/admin/dashboard/charts') return await adminDashboardCharts(request, response);
-    if (request.method === 'GET' && request.url === '/api/admin/audit-logs') return await adminAuditLogs(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/dashboard/stats')) return await adminDashboardStats(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/dashboard/charts')) return await adminDashboardCharts(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/audit-logs')) return await adminAuditLogs(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/messages') return await adminSendUserMessage(request, response);
-    if (request.method === 'GET' && request.url === '/api/admin/messages') return await adminListMessages(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/messages')) return await adminListMessages(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/announcements') return await adminCreateAnnouncement(request, response);
-    if (request.method === 'GET' && request.url === '/api/admin/announcements') return await adminListAnnouncements(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/announcements')) return await adminListAnnouncements(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/campaigns') return await adminCreateCampaign(request, response);
-    if (request.method === 'GET' && request.url === '/api/admin/campaigns') return await adminListCampaigns(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/campaigns')) return await adminListCampaigns(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/products/bulk') return await adminBulkProductAction(request, response);
     if (request.method === 'POST' && request.url === '/api/avatar/requests') return await submitAvatarRequest(request, response);
     if (request.method === 'GET' && request.url === '/api/avatar/requests') return await listMyAvatarRequests(request, response);
@@ -2943,7 +2949,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && request.url.startsWith('/api/orders/recent')) return await recentOrders(request, response);
 
     // Admin coupon management
-    if (request.method === 'GET' && request.url === '/api/admin/coupons') return await adminListCoupons(request, response);
+    if (request.method === 'GET' && request.url.startsWith('/api/admin/coupons')) return await adminListCoupons(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/coupons') return await adminCreateCoupon(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/coupons/assign') return await adminAssignCoupon(request, response);
     if (request.method === 'DELETE' && /^\/api\/admin\/coupons\/[^/]+$/.test(request.url)) return await adminDeleteCoupon(request, response, decodeURIComponent(request.url.split('/').pop()));
