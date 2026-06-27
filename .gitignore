@@ -5,6 +5,7 @@
 
 # Node modules
 node_modules/
+server/node_modules/
 
 # Uploads (generated)
 uploads/receipts/

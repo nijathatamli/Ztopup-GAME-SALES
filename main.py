@@ -1,3 +1,6 @@
+# DEPRECATED: This FastAPI + SQLite stub is not used by the active Node.js application.
+# The active backend is server.js (main) and server/index.js (auth service).
+# Keeping this file only for historical reference; do not use it for production.
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Header
