@@ -193,21 +193,48 @@ async function ensureAdminSchema(pool){
     description TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
+  await pool.query('ALTER TABLE admin_roles ADD COLUMN IF NOT EXISTS role TEXT');
+  await pool.query("UPDATE admin_roles SET role = COALESCE(role, name, 'role_' || COALESCE(id::text, 'legacy')) WHERE role IS NULL");
+  await pool.query("UPDATE admin_roles SET name = COALESCE(name, role, 'Legacy Role') WHERE name IS NULL");
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS admin_roles_role_key ON admin_roles(role)');
+
   await pool.query(`CREATE TABLE IF NOT EXISTS admin_permissions (
     role TEXT NOT NULL REFERENCES admin_roles(role) ON DELETE CASCADE,
     permission TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (role, permission)
   )`);
+  await pool.query('ALTER TABLE admin_permissions ADD COLUMN IF NOT EXISTS role TEXT');
+  await pool.query(`UPDATE admin_permissions ap
+    SET role = ar.role
+    FROM admin_roles ar
+    WHERE ap.role IS NULL AND ap.role_id IS NOT NULL AND ar.id = ap.role_id`);
+  await pool.query("UPDATE admin_permissions SET role = COALESCE(role, 'admin') WHERE role IS NULL");
+  await pool.query('ALTER TABLE admin_permissions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP');
+  await pool.query(`UPDATE admin_permissions ap
+    SET role_id = ar.id
+    FROM admin_roles ar
+    WHERE ap.role_id IS NULL AND ap.role = ar.role`);
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS admin_permissions_role_permission_key ON admin_permissions(role, permission)');
   await pool.query(`CREATE TABLE IF NOT EXISTS admin_sessions (
     id VARCHAR(36) PRIMARY KEY,
     admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
     token VARCHAR(255) UNIQUE NOT NULL,
+    refresh_token_hash TEXT NOT NULL,
     csrf_token VARCHAR(255) NOT NULL,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
+  await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS refresh_token_hash TEXT');
+  await pool.query("UPDATE admin_sessions SET refresh_token_hash = COALESCE(refresh_token_hash, token, 'legacy_refresh_token') WHERE refresh_token_hash IS NULL OR refresh_token_hash = ''");
+  await pool.query('ALTER TABLE admin_sessions ALTER COLUMN refresh_token_hash SET NOT NULL');
+  await pool.query("ALTER TABLE admin_sessions ALTER COLUMN refresh_token_hash SET DEFAULT ''");
   await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS csrf_token VARCHAR(255)');
+  await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45)');
+  await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT');
+  await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON admin_sessions(token)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at)');
   // Seed default roles and permissions (idempotent)
@@ -218,7 +245,10 @@ async function ensureAdminSchema(pool){
     { role: 'support', description: 'Customer support access' }
   ];
   for (const r of roles) {
-    await pool.query('INSERT INTO admin_roles(role, description) VALUES ($1, $2) ON CONFLICT (role) DO NOTHING', [r.role, r.description]);
+    await pool.query(
+      'INSERT INTO admin_roles(role, name, description) VALUES ($1, $2, $3) ON CONFLICT (role) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description',
+      [r.role, r.role, r.description]
+    );
   }
   const permissions = [
     // super_admin gets everything implicitly
@@ -253,24 +283,59 @@ async function ensureAdminSchema(pool){
     { role: 'support', permission: 'balance.view' }
   ];
   for (const p of permissions) {
-    await pool.query('INSERT INTO admin_permissions(role, permission) VALUES ($1, $2) ON CONFLICT (role, permission) DO NOTHING', [p.role, p.permission]);
+    const { rows: roleRows } = await pool.query('SELECT id FROM admin_roles WHERE role = $1 LIMIT 1', [p.role]);
+    const roleId = roleRows.length ? roleRows[0].id : null;
+    await pool.query(
+      `INSERT INTO admin_permissions(role, role_id, permission, created_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (role, permission) DO UPDATE SET role_id = EXCLUDED.role_id`,
+      [p.role, roleId, p.permission]
+    );
   }
   await pool.query(`CREATE TABLE IF NOT EXISTS balance_requests (id VARCHAR(36) PRIMARY KEY,user_id VARCHAR(36) NOT NULL,amount DECIMAL(10,2) NOT NULL,image_url TEXT NOT NULL,status VARCHAR(20) NOT NULL DEFAULT 'pending',reviewed_by TEXT NULL,reviewed_at TIMESTAMP NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_balance_user ON balance_requests(user_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_balance_status ON balance_requests(status)');
-  // Migrate existing admin from admin-credentials.json if admins table is empty
+  // Seed/repair default admin credentials from admin-credentials.json on every boot
   try{
-    const { rows } = await pool.query('SELECT COUNT(*)::int AS c FROM admins');
-    if(rows[0].c === 0){
-      const fs = require('fs');
-      const adminFile = path.join(__dirname, 'admin-credentials.json');
-      const data = JSON.parse(fs.readFileSync(adminFile, 'utf8'));
-      if(Array.isArray(data.admins)){
-        for(const a of data.admins){
-          const id = String(a.id || crypto.randomUUID());
-          await pool.query('INSERT INTO admins(id,username,email,password_hash,active,created_at,updated_at)VALUES($1,$2,$3,$4,$5,NOW(),NOW()) ON CONFLICT (id) DO NOTHING',[id, a.username, a.email, a.password_hash, a.active !== false]);
-        }
-      }
+    const fs = require('fs');
+    const adminFile = path.join(__dirname, 'admin-credentials.json');
+    let defaultAdmins = [];
+    if(fs.existsSync(adminFile)){
+      const data = JSON.parse(fs.readFileSync(adminFile,'utf8'));
+      if(Array.isArray(data.admins)) defaultAdmins = data.admins;
+    }
+    for(const a of defaultAdmins){
+      const id = String(a.id || crypto.randomUUID());
+      const username = (a.username || 'admin').trim();
+      const email = (a.email || 'admin@ztopup.az').trim().toLowerCase();
+      const passwordHash = a.password_hash || '';
+      const active = a.active !== false;
+      const role = a.role || 'admin';
+
+      await pool.query(
+        `INSERT INTO admins(id, username, email, password_hash, active, role, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           username = EXCLUDED.username,
+           email = EXCLUDED.email,
+           password_hash = EXCLUDED.password_hash,
+           active = EXCLUDED.active,
+           role = EXCLUDED.role,
+           updated_at = NOW()`,
+        [id, username, email, passwordHash, active, role]
+      );
+
+      await pool.query(
+        `UPDATE admins SET
+           username = $2,
+           email = $3,
+           password_hash = $4,
+           active = $5,
+           role = $6,
+           updated_at = NOW()
+         WHERE id <> $1 AND (LOWER(username) = LOWER($2) OR LOWER(email) = LOWER($3))`,
+        [id, username, email, passwordHash, active, role]
+      );
     }
   }catch(e){ console.error('[Admin] Migration warning:', e.message); }
   const { rows: adminCount } = await pool.query('SELECT COUNT(*)::int AS c FROM admins');
@@ -301,10 +366,20 @@ async function rLogin(req,res,pool){
     if(req.method==='POST'){if(!checkLoginLimit(clientIp))return sendHtml(res,429,'<h1>Çox sayda cəhdi. Bir az gözləyin.</h1>');try{const body=await readBody(req);const id=String(body.identifier||'').trim().toLowerCase();const pw=String(body.password||'');const a=await findAdmin(pool,id);if(!a||!verifyPw(pw,a.password_hash)){auditLog(pool,'admin_login_failed',{admin:{id:'unknown',username:'unknown'},req,targetId:id,meta:{identifier:id}});const t=csrfToken();setCookie(res,'admin_csrf',t,3600);const html=`<!doctype html><html lang="az"><head><meta charset="utf-8"/><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0b12;color:#fff;font-family:Rajdhani,system-ui}.card{width:100%;max-width:420px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:24px}h1{font-size:22px;margin:0 0 16px}label{display:block;font-size:13px;color:#c9c9d1;margin:10px 0 6px}input{width:100%;background:#141427;border:1px solid rgba(255,255,255,.1);color:#fff;border-radius:10px;padding:10px 12px;outline:none;box-sizing:border-box}button{width:100%;margin-top:16px;background:#6c4df4;border:none;color:#fff;padding:12px 14px;border-radius:12px;font-weight:800;cursor:pointer}.error{margin-top:10px;background:rgba(255,99,71,.1);border:1px solid rgba(255,99,71,.3);padding:10px;border-radius:10px;color:#ffb3a7}</style></head><body><div class="card"><h1>Admin Girişi</h1><div class="error">Giriş məlumatları səhvdir</div><form method="post"><input type="hidden" name="csrf" value="${esc(t)}"/><label>Email və ya İstifadəçi Adı</label><input type="text" name="identifier" required value="${esc(id)}"/><label>Şifrə</label><input type="password" name="password" required/><button type="submit">Daxil ol</button></form></div></body></html>`;return sendHtml(res,200,html);}
     const jti=crypto.randomUUID();
     const csrf=csrfToken();
+    const sessionId=crypto.randomUUID();
+    const refreshToken=crypto.randomBytes(32).toString('hex');
+    const refreshHash=crypto.createHash('sha256').update(refreshToken).digest('hex');
     const token=jwt.sign({sub:String(a.id),jti},JWT_SECRET,{expiresIn:ADMIN_SESSION_MAX_AGE_SECONDS});
-    await pool.query('INSERT INTO admin_sessions(id,admin_id,token,csrf_token,expires_at)VALUES($1,$2,$3,$4,NOW() + $5::interval)',[crypto.randomUUID(),String(a.id),jti,csrf,ADMIN_SESSION_MAX_AGE_SECONDS + ' seconds']);
+    const ua=String(req.headers['user-agent']||'unknown').slice(0,255);
+    const expiresInterval=ADMIN_SESSION_MAX_AGE_SECONDS + ' seconds';
+    await pool.query(
+      `INSERT INTO admin_sessions(id,admin_id,token,refresh_token_hash,csrf_token,ip_address,user_agent,expires_at,created_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,NOW() + $8::interval,NOW())`,
+      [sessionId,String(a.id),jti,refreshHash,csrf,clientIp,ua,expiresInterval]
+    );
     await pool.query('UPDATE admins SET last_login_at=NOW(), last_login_ip=$1 WHERE id=$2',[clientIp,String(a.id)]);
     setCookie(res,'admin_token',token,ADMIN_SESSION_MAX_AGE_SECONDS);
+    setCookie(res,'admin_refresh_token',refreshToken,ADMIN_SESSION_MAX_AGE_SECONDS);
     setCookie(res,'admin_csrf',csrf, ADMIN_SESSION_MAX_AGE_SECONDS);
     auditLog(pool,'admin_login_success',{admin:a,req,targetId:a.id,meta:{adminId:a.id,username:a.username}});
     res.writeHead(302,{Location:'/admin/'});res.end();}catch(e){console.error('[Admin Login Error]',e);return sendHtml(res,500,'<h1>Server xətası: '+esc(e.message)+'</h1>');}}
@@ -319,6 +394,7 @@ async function rLogout(req,res,pool){
     }catch{}
   }
   clearCookie(res,'admin_token');
+  clearCookie(res,'admin_refresh_token');
   clearCookie(res,'admin_csrf');
   res.writeHead(302,{Location:'/admin/login'});
   res.end();
