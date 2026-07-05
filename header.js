@@ -38,6 +38,8 @@
      ICONS (inline SVG strings)
      ===================================================================== */
   const ICONS = {
+    home: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`,
+    gamepad: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M6 12h4"></path><path d="M8 10v4"></path><line x1="15" y1="13" x2="15.01" y2="13"></line><line x1="18" y1="11" x2="18.01" y2="11"></line></svg>`,
     wallet: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M21 12h-6a2 2 0 0 0 0 4h6v-4Z"/></svg>`,
     plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>`,
     cart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6h15l-1.5 9h-12z"/><circle cx="9" cy="20" r="1.5" fill="currentColor" stroke="none"/><circle cx="18" cy="20" r="1.5" fill="currentColor" stroke="none"/><path d="M6 6L5 3H2"/></svg>`,
@@ -299,7 +301,57 @@
           </div>
         </header>
         ${buildMobileDrawer(navItems)}
+        ${buildBottomNav()}
       </div>
+    `;
+  }
+
+  function buildBottomNav() {
+    const path = window.location.pathname;
+    const isHome = path === '/' || path === '/index.html';
+    const isCat = path.includes('/category') || path.includes('/pubg') || path.includes('/mehsullar');
+    const isCart = path.includes('/cart');
+    const isBalance = path.includes('/balance') || path.includes('/deposits');
+    const isProfile = path.includes('/profile');
+    
+    const cartBadge = state.cartCount > 0 ? `<span class="z-bnav-badge">${state.cartCount > 99 ? '99+' : state.cartCount}</span>` : '';
+    const balanceText = currentUser ? `${currencySymbol}${formatMoney(state.balance)}` : 'Giriş';
+    const profileAction = currentUser ? `href="/profile.html"` : `href="/login-v2.html"`;
+    const balanceAction = currentUser ? `href="/profile.html#balance"` : `href="/login-v2.html"`;
+    
+    return `
+      <nav class="z-bottom-nav">
+        <div class="z-bnav-inner">
+          <a href="/" class="z-bnav-item ${isHome ? 'active' : ''}">
+            <div class="z-bnav-icon">${ICONS.home}</div>
+            <span class="z-bnav-label">Ana səhifə</span>
+            <div class="z-bnav-indicator"></div>
+          </a>
+          <a href="/category.html" class="z-bnav-item ${isCat ? 'active' : ''}">
+            <div class="z-bnav-icon">${ICONS.gamepad}</div>
+            <span class="z-bnav-label">Kataloq</span>
+            <div class="z-bnav-indicator"></div>
+          </a>
+          <a href="/cart.html" class="z-bnav-item ${isCart ? 'active' : ''}">
+            <div class="z-bnav-icon">
+              ${ICONS.cart}
+              ${cartBadge}
+            </div>
+            <span class="z-bnav-label">Səbət</span>
+            <div class="z-bnav-indicator"></div>
+          </a>
+          <a ${balanceAction} class="z-bnav-item ${isBalance ? 'active' : ''}">
+            <div class="z-bnav-icon">${ICONS.wallet}</div>
+            <span class="z-bnav-label">${balanceText}</span>
+            <div class="z-bnav-indicator"></div>
+          </a>
+          <a ${profileAction} class="z-bnav-item ${isProfile ? 'active' : ''}">
+            <div class="z-bnav-icon">${ICONS.user}</div>
+            <span class="z-bnav-label">Profil</span>
+            <div class="z-bnav-indicator"></div>
+          </a>
+        </div>
+      </nav>
     `;
   }
 
@@ -1077,6 +1129,105 @@
     }
     @media (max-width: 340px) {
       .ztopup-header .brand { display: none; }
+    }
+
+    /* BOTTOM NAVIGATION */
+    .ztopup-header .z-bottom-nav {
+      display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: rgba(12, 12, 18, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      z-index: 9999;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .ztopup-header .z-bnav-inner {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      height: 64px;
+      padding: 0 8px;
+    }
+    .ztopup-header .z-bnav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      color: rgba(255, 255, 255, 0.55);
+      gap: 4px;
+      position: relative;
+      transition: color 0.2s ease;
+      height: 100%;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ztopup-header .z-bnav-item.active {
+      color: var(--z-gold);
+    }
+    .ztopup-header .z-bnav-icon {
+      position: relative;
+      width: 24px; height: 24px;
+      display: grid; place-items: center;
+      transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .ztopup-header .z-bnav-item:active .z-bnav-icon {
+      transform: scale(0.85);
+    }
+    .ztopup-header .z-bnav-item.active .z-bnav-icon {
+      transform: translateY(-2px);
+    }
+    .ztopup-header .z-bnav-icon svg {
+      width: 22px; height: 22px;
+    }
+    .ztopup-header .z-bnav-label {
+      font-size: 10px;
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    .ztopup-header .z-bnav-badge {
+      position: absolute;
+      top: -4px; right: -8px;
+      background: #ff3232;
+      color: #fff;
+      font-size: 9px;
+      font-weight: 900;
+      padding: 2px 5px;
+      border-radius: 10px;
+      box-shadow: 0 0 8px rgba(255, 50, 50, 0.5);
+      min-width: 14px;
+      text-align: center;
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes popIn {
+      0% { transform: scale(0.5); opacity: 0; }
+      50% { transform: scale(1.2); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .ztopup-header .z-bnav-indicator {
+      position: absolute;
+      top: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 24px; height: 3px;
+      border-radius: 0 0 4px 4px;
+      background: var(--z-gold);
+      box-shadow: 0 2px 8px rgba(255, 179, 0, 0.5);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .ztopup-header .z-bnav-item.active .z-bnav-indicator {
+      opacity: 1;
+    }
+
+    @media (max-width: 768px) {
+      .ztopup-header .z-bottom-nav { display: block; }
+      body { padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important; }
+      .ztopup-header .z-burger { display: none !important; }
+      .ztopup-header .z-drawer { display: none !important; }
+      .ztopup-header .z-drawer-scrim { display: none !important; }
     }
   `;
 
