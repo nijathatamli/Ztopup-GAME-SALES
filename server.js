@@ -1467,6 +1467,12 @@ async function adminUpdateUser(request, response, id) {
   const oldUser = rows[0];
   await pool.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
   const { rows: updated } = await pool.query('SELECT * FROM users WHERE id = $1 LIMIT 1', [id]);
+  // Invalidate all active sessions immediately when suspending
+  if (body.status === 'suspended') {
+    await pool.query('DELETE FROM sessions WHERE user_id = $1', [id]);
+  }
+  // Push real-time state update to customer frontend via SSE
+  ssePushState(id);
   auditLog('user_updated', { admin, req: request, targetType: 'user', targetId: id, oldValue: oldUser, newValue: updated[0] });
   sendJson(response, 200, { success: true, user: sanitizeUser(updated[0]) });
 }
@@ -1830,6 +1836,8 @@ function sanitizeUser(user) {
     lastName: user.last_name,
     email: user.email,
     balance: Number(user.balance || 0),
+    status: user.status || 'active',
+    membershipLevel: user.membership_level || 'standard',
     createdAt: user.created_at
   };
 }
@@ -1951,19 +1959,18 @@ async function getCurrentMembership(userId) {
     pool.query('SELECT membership_level FROM users WHERE id = $1 LIMIT 1', [userId]),
     getMonthlyTopupTotal(userId)
   ]);
-  const stored = (userRow.rows[0] && userRow.rows[0].membership_level) || 'standard';
-  const calculated = await getUserMembershipLevel(userId);
-  if (stored !== calculated) {
-    await pool.query('UPDATE users SET membership_level = $1 WHERE id = $2', [calculated, userId]);
-  }
-  const nextLevel = calculated === 'premium' ? null : (calculated === 'vip' ? 'premium' : 'vip');
+  // Use the stored DB value — set by admin or auto-upgraded via recalcMembership.
+  // Do NOT auto-override here; that silently erases admin-set memberships on every profile load.
+  const rawLevel = (userRow.rows[0] && userRow.rows[0].membership_level) || 'standard';
+  const level = MEMBERSHIP_TIERS[rawLevel] ? rawLevel : 'standard';
+  const nextLevel = level === 'premium' ? null : (level === 'vip' ? 'premium' : 'vip');
   const nextThreshold = nextLevel ? MEMBERSHIP_TIERS[nextLevel].threshold : null;
   const progress = nextThreshold ? clamp(total / nextThreshold, 0, 1) : 1;
   return {
-    level: calculated,
-    label: MEMBERSHIP_TIERS[calculated].label,
-    badge: MEMBERSHIP_TIERS[calculated].badge,
-    discount: MEMBERSHIP_TIERS[calculated].discount,
+    level,
+    label: MEMBERSHIP_TIERS[level].label,
+    badge: MEMBERSHIP_TIERS[level].badge,
+    discount: MEMBERSHIP_TIERS[level].discount,
     monthlyTopup: total,
     nextLevel,
     nextThreshold,
@@ -2128,6 +2135,10 @@ async function requireUser(request, response) {
     sendJson(response, 401, { message: 'İstifadəçi tapılmadı.' });
     return null;
   }
+  if (user.status === 'suspended') {
+    sendJson(response, 403, { message: 'Hesabınız bloklanmışdır. Dəstəklə əlaqə saxlayın.' });
+    return null;
+  }
   return user;
 }
 
@@ -2230,7 +2241,9 @@ async function login(request, response) {
     auditLog('login_failed', { identifier, ip: rateKey(request, null, 'login').split(':').pop() });
     return sendJson(response, 401, { message: 'Email və ya şifrə yanlışdır.' });
   }
-
+  if (user.status === 'suspended') {
+    return sendJson(response, 403, { message: 'Hesabınız bloklanmışdır. Dəstəklə əlaqə saxlayın.' });
+  }
   const token = crypto.randomBytes(32).toString('hex');
   await dbCreateSession(token, user.id);
   setAuthCookie(response, request, token);
@@ -2304,6 +2317,9 @@ async function authLogin(request, response) {
   if (!user || !verifyPassword(password, user.password_hash)) {
     auditLog('login_failed', { identifier, ip: rateKey(request, null, 'login').split(':').pop() });
     return sendJson(response, 401, { message: 'Email və ya şifrə yanlışdır.' });
+  }
+  if (user.status === 'suspended') {
+    return sendJson(response, 403, { message: 'Hesabınız bloklanmışdır. Dəstəklə əlaqə saxlayın.' });
   }
   const token = signJwt(user.id, remember);
   const maxAge = remember ? 604800 : 86400;
@@ -2529,14 +2545,16 @@ function sseSend(userId, event, data) {
 async function ssePushState(userId) {
   try {
     const [u, cart, notif] = await Promise.all([
-      pool.query('SELECT balance FROM users WHERE id = $1 LIMIT 1', [userId]),
+      pool.query('SELECT balance, membership_level, status FROM users WHERE id = $1 LIMIT 1', [userId]),
       pool.query('SELECT COALESCE(SUM(quantity),0)::int AS c FROM cart_items WHERE user_id = $1', [userId]),
       pool.query('SELECT COUNT(*)::int AS c FROM notifications WHERE user_id = $1 AND is_read = false', [userId])
     ]);
     sseSend(userId, 'state', {
       balance: Number(u.rows[0] ? u.rows[0].balance : 0),
       cartCount: cart.rows[0] ? cart.rows[0].c : 0,
-      unreadCount: notif.rows[0] ? notif.rows[0].c : 0
+      unreadCount: notif.rows[0] ? notif.rows[0].c : 0,
+      membershipLevel: u.rows[0] ? (u.rows[0].membership_level || 'standard') : 'standard',
+      status: u.rows[0] ? (u.rows[0].status || 'active') : 'active'
     });
   } catch {}
 }
@@ -2946,9 +2964,9 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/api/admin/upload') return await adminUploadImage(request, response);
     if (request.method === 'GET' && request.url.startsWith('/api/admin/orders')) return await adminListOrders(request, response);
     if (request.method === 'PUT' && request.url === '/api/admin/orders/status') return await adminUpdateOrderStatus(request, response);
+    if (request.method === 'GET' && /^\/api\/admin\/users\/[^/?]+$/.test(request.url)) return await adminGetUser(request, response, decodeURIComponent(request.url.split('/').pop()));
+    if (request.method === 'PUT' && /^\/api\/admin\/users\/[^/?]+$/.test(request.url)) return await adminUpdateUser(request, response, decodeURIComponent(request.url.split('/').pop()));
     if (request.method === 'GET' && request.url.startsWith('/api/admin/users')) return await adminListUsers(request, response);
-    if (request.method === 'GET' && /^\/api\/admin\/users\/[^/]+$/.test(request.url)) return await adminGetUser(request, response, decodeURIComponent(request.url.split('/').pop()));
-    if (request.method === 'PUT' && /^\/api\/admin\/users\/[^/]+$/.test(request.url)) return await adminUpdateUser(request, response, decodeURIComponent(request.url.split('/').pop()));
     if (request.method === 'POST' && /^\/api\/admin\/users\/[^/]+\/balance$/.test(request.url)) return await adminAdjustUserBalance(request, response, decodeURIComponent(request.url.split('/')[4]));
     if (request.method === 'POST' && request.url === '/api/cart/checkout') return await cartCheckout(request, response);
     if (request.method === 'POST' && request.url === '/api/admin/balance/adjust') return await adminAdjustBalance(request, response);

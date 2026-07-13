@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { auditLog: sharedAuditLog, extractClientIp } = require('./lib/audit');
 
@@ -551,7 +552,7 @@ async function rUsers(req,res,pool){
 <dialog id="um" style="width:min(600px,96vw)"><div id="ucontent">Yüklənir...</div><div class="row-end"><button type="button" onclick="document.getElementById('um').close()">Bağla</button></div></dialog>
 <script>
 async function api(u,o){o.headers=o.headers||{};o.headers['X-CSRF-Token']='${esc(cs)}';if(o.body&&typeof o.body==='object'){o.headers['Content-Type']='application/json';o.body=JSON.stringify(o.body);}const r=await fetch(u,o);if(!r.ok)throw new Error((await r.text()).slice(0,200));return r.json();}
-async function viewUser(id){document.getElementById('um').showModal();const j=await api('/api/admin/users/'+id,{});const u=j.user,s=j.stats||{};const oRows=(j.orders||[]).map(o=>\`<tr><td>\${o.id.slice(0,8)}</td><td>\${o.game}</td><td>₼ \${Number(o.total_amount||o.price||0).toFixed(2)}</td><td>\${o.status_code}</td><td>\${new Date(o.created_at).toLocaleDateString('az')}</td></tr>\`).join('');const couponRows=(j.coupons||[]).map(c=>\`<li style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.08)" data-id="\${c.id}">\${c.code} — \${c.discount_value}\${c.discount_type==='percentage'?'%':'₼'} — qalıq: \${c.uses_left}</li>\`).join('');document.getElementById('ucontent').innerHTML=\`
+async function viewUser(id){document.getElementById('um').showModal();document.getElementById('ucontent').innerHTML='Yüklənir...';try{const j=await api('/api/admin/users/'+id,{});const u=j.user,s=j.stats||{};const oRows=(j.orders||[]).map(o=>\`<tr><td>\${o.id.slice(0,8)}</td><td>\${o.game}</td><td>₼ \${Number(o.total_amount||o.price||0).toFixed(2)}</td><td>\${o.status_code}</td><td>\${new Date(o.created_at).toLocaleDateString('az')}</td></tr>\`).join('');const couponRows=(j.coupons||[]).map(c=>\`<li style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.08)" data-id="\${c.id}">\${c.code} — \${c.discount_value}\${c.discount_type==='percentage'?'%':'₼'} — qalıq: \${c.uses_left}</li>\`).join('');document.getElementById('ucontent').innerHTML=\`
 <div><h3>\${u.username}</h3><p>\${u.email}</p><p>Balans: ₼ \${Number(u.balance).toFixed(2)} | Üzvlük: \${u.membership_level||'standard'} | Status: \${u.status||'active'}</p></div>
 <div class="grid" style="grid-template-columns:repeat(4,1fr);margin:12px 0"><div class="card"><div class="stat">\${s.total_orders||0}</div><div>Ümumi sifariş</div></div><div class="card"><div class="stat">\${s.completed_orders||0}</div><div>Tamamlanmış</div></div><div class="card"><div class="stat">\${s.rejected_orders||0}</div><div>Rədd</div></div><div class="card"><div class="stat">₼ \${Number(s.total_deposits||0).toFixed(2)}</div><div>Ümumi depozit</div></div></div>
 <h4>Son sifarişlər</h4><table><thead><tr><th>ID</th><th>Oyun</th><th>Məbləğ</th><th>Status</th><th>Tarix</th></tr></thead><tbody>\${oRows||'<tr><td colspan="5">Sifariş yoxdur</td></tr>'}</tbody></table>
@@ -567,7 +568,7 @@ async function viewUser(id){document.getElementById('um').showModal();const j=aw
 async function loadCoupons(){const c=await api('/api/admin/coupons',{});document.getElementById('couponSelect').innerHTML='<option value="">Kupon seç</option>'+(c.coupons||[]).map(x=>\`<option value="\${x.id}">\${x.code} — \${x.discount_value}\${x.discount_type==='percentage'?'%':'₼'}</option>\`).join('');}loadCoupons();
 document.getElementById('msgForm').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);await api('/api/admin/messages',{method:'POST',body:{userId:fd.get('userId'),title:fd.get('title'),content:fd.get('content'),priority:fd.get('priority')}});alert('Mesaj göndərildi');e.target.reset();});
 document.getElementById('couponForm').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);await api('/api/admin/coupons/assign',{method:'POST',body:{userId:fd.get('userId'),couponId:fd.get('couponId')}});alert('Kupon təyin edildi');loadCoupons();viewUser(fd.get('userId'));});
-document.getElementById('editUser').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);const body={status:fd.get('status'),membership_level:fd.get('membership_level')};await api('/api/admin/users/'+fd.get('userId'),{method:'PUT',body});alert('Yeniləndi');location.reload();});}
+document.getElementById('editUser').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);const body={status:fd.get('status'),membership_level:fd.get('membership_level')};await api('/api/admin/users/'+fd.get('userId'),{method:'PUT',body});alert('Yeniləndi');location.reload();});}catch(err){document.getElementById('ucontent').innerHTML='<p style="color:#f87171;padding:12px;font-family:monospace">Xəta: '+err.message+'</p>';}}
 </script>`;
   sendHtml(res,200,page('İstifadəçilər',nav('/admin/users'),content,flash));
 }
@@ -927,15 +928,15 @@ async function rReceipt(req,res,pool){
   const baseDir=path.resolve(path.join(__dirname,'uploads','receipts'));
   const target=path.resolve(path.join(baseDir,file));
   if(!target.startsWith(baseDir+path.sep)){res.writeHead(404);res.end('Tapılmadı');return;}
-  try{const stat=await fs.stat(target);if(!stat.isFile())throw new Error();}catch{res.writeHead(404);res.end('Tapılmadı');return;}
-  const fd=await fs.open(target,'r');const buf=Buffer.alloc(8192);const n=await fd.read(buf,0,8192,0);await fd.close();
+  try{const stat=await fs.promises.stat(target);if(!stat.isFile())throw new Error();}catch{res.writeHead(404);res.end('Tapılmadı');return;}
+  const fd=await fs.promises.open(target,'r');const buf=Buffer.alloc(8192);const {bytesRead:n}=await fd.read(buf,0,8192,0);await fd.close();
   const head=buf.slice(0,n);
   const isJpg=head[0]===0xFF&&head[1]===0xD8;
   const isPng=head[0]===0x89&&head[1]===0x50&&head[2]===0x4E&&head[3]===0x47;
   if(!isJpg&&!isPng){res.writeHead(415);res.end('Dəstəklənməyən fayl tipi');return;}
   const mime=isJpg?'image/jpeg':'image/png';
-  const data=await fs.readFile(target);
-  res.writeHead(200,{'Content-Type':mime,'Content-Length':data.length,'Content-Disposition':'inline; filename="'+file+'"','X-Content-Type-Options':'nosniff','Cache-Control':'private, max-age:300'});
+  const data=await fs.promises.readFile(target);
+  res.writeHead(200,{'Content-Type':mime,'Content-Length':data.length,'Content-Disposition':'inline; filename="'+file+'"','X-Content-Type-Options':'nosniff','Cache-Control':'private, max-age=300'});
   res.end(data);
 }
 
