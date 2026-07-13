@@ -602,7 +602,7 @@ function App() {
       const data = await apiRequest('/api/profile');
       setProfile(data.profile || data);
       setStats(data.stats || {});
-    } catch (e) { setMessage({ type: 'bad', text: 'Profil məlumatları üçün daxil olmaq lazımdır.' }); }
+    } catch (e) { setMessage({ type: 'bad', text: e.message || 'Profil məlumatları üçün daxil olmaq lazımdır.' }); }
     finally { setLoading(false); }
   }
   async function loadRecent() { try { const d = await apiRequest('/api/orders/recent'); setRecentOrders(d.orders || []); } catch (e) {} }
