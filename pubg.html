@@ -85,18 +85,42 @@ async function api(url, opts={}){
   return data;
 }
 
+let userMembership = { level: 'standard' };
+
+function priceBlock(p) {
+  const pr = p.pricing;
+  if (pr && pr.discountPercent > 0) {
+    return `<div style="text-align:right">
+      <div class="text-xs text-white/40 line-through">${pr.originalPrice.toFixed(2)} ₼</div>
+      <div class="font-orbitron text-xl font-black text-gold">${pr.finalPrice.toFixed(2)} ₼</div>
+    </div>`;
+  }
+  return `<div class="font-orbitron text-xl font-black text-gold">${Number(p.price).toFixed(2)} ₼</div>`;
+}
+
+function membershipBadge(level) {
+  if (level === 'premium') return '<span style="font-size:10px;padding:2px 6px;border-radius:6px;border:1px solid rgba(168,85,247,.4);background:rgba(168,85,247,.1);color:#c4b5fd;font-weight:900">PREMIUM -20%</span>';
+  if (level === 'vip') return '<span style="font-size:10px;padding:2px 6px;border-radius:6px;border:1px solid rgba(59,130,246,.4);background:rgba(59,130,246,.1);color:#93c5fd;font-weight:900">VIP -10%</span>';
+  return '';
+}
+
 async function loadProducts(){
-  const { products } = await api('/api/products?game=pubg');
+  const data = await api('/api/products?game=pubg');
+  const products = data.products || [];
+  userMembership = data.membership || { level: 'standard' };
   const grid = document.getElementById('grid');
   grid.innerHTML = products.map(p=>`
     <div class="rounded-2xl border border-white/10 bg-white/[.03] p-4">
       <div class="flex items-center gap-3">
         <img src="${p.image_url || '/assets/pubg-uc.png'}" class="h-12 w-12 rounded-xl border border-white/10 bg-white/[.06] p-1"/>
-        <div class="font-orbitron text-lg font-black">${p.title}</div>
+        <div>
+          <div class="font-orbitron text-lg font-black">${p.title}</div>
+          ${userMembership.level !== 'standard' ? membershipBadge(userMembership.level) : ''}
+        </div>
       </div>
       <div class="mt-3 flex items-center justify-between">
         <div class="font-rajdhani text-sm font-black text-white/70">Qiymət</div>
-        <div class="font-orbitron text-xl font-black text-gold">${Number(p.price).toFixed(2)} ₼</div>
+        ${priceBlock(p)}
       </div>
       <div class="mt-3 flex items-center justify-between">
         <div class="font-rajdhani text-sm font-black text-white/70">Mövcudluq</div>

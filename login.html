@@ -14,6 +14,7 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="/assets/logo-component.js"></script>
 <script>
   tailwind.config = {
     theme: {
@@ -66,17 +67,6 @@
 <script type="text/babel">
 const { useState } = React;
 
-function Logo(){
-  return <div className="flex items-center gap-3">
-    <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-yellow-200 via-gold to-orange-500 shadow-gold">
-      <img className="h-[145%] w-[145%] object-cover drop-shadow-[0_0_10px_rgba(255,179,0,.55)]" src="assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"/>
-    </div>
-    <div>
-      <div className="font-orbitron text-xl font-black tracking-[.18em] text-gold">ZELIX ID</div>
-      <div className="font-rajdhani text-xs font-bold tracking-[.28em] text-white/45">GAMING ACCESS</div>
-    </div>
-  </div>
-}
 
 function Field({ label, name, type='text', value, onChange, error }){
   const [show, setShow] = useState(false);

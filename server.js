@@ -344,6 +344,19 @@ async function dbEnsureSchema() {
   )`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_user_id ON deposit_requests(user_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_status ON deposit_requests(status)');
+  // Extend deposit_requests with full audit / financial-record columns (idempotent)
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS admin_id VARCHAR(36)");
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS admin_username VARCHAR(100)");
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS approved_amount NUMERIC(10,2)");
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS prev_balance NUMERIC(10,2)");
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS new_balance NUMERIC(10,2)");
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP");
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT");
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'bank_transfer'");
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS reference_number VARCHAR(100)");
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS user_ip VARCHAR(45)");
+  await pool.query("ALTER TABLE deposit_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_admin_id ON deposit_requests(admin_id)');
 
   // Extend transactions to support richer categories/descriptions (backward compatible)
   await pool.query("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS category VARCHAR(30) NOT NULL DEFAULT 'admin_adjustment'");
@@ -537,6 +550,18 @@ async function dbEnsureSchema() {
   await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS coupon_id VARCHAR(36)');
   await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_orders_coupon ON orders(coupon_id)');
+  // Membership pricing audit columns (idempotent)
+  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS membership_level VARCHAR(20) NOT NULL DEFAULT 'standard'");
+  await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS original_amount DECIMAL(10,2)');
+  await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS membership_discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00');
+  await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_points_earned DECIMAL(10,2) NOT NULL DEFAULT 0.00');
+  await pool.query('ALTER TABLE order_items ADD COLUMN IF NOT EXISTS original_unit_price DECIMAL(10,2)');
+  await pool.query('ALTER TABLE order_items ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE order_items ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00');
+  await pool.query('ALTER TABLE order_items ADD COLUMN IF NOT EXISTS final_unit_price DECIMAL(10,2)');
+  await pool.query("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS membership_level VARCHAR(20)");
+  await pool.query('ALTER TABLE order_items ADD COLUMN IF NOT EXISTS bonus_points DECIMAL(10,2) NOT NULL DEFAULT 0.00');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS bonus_points DECIMAL(10,2) NOT NULL DEFAULT 0.00');
 
   // Migrate legacy orders to order_items (one item per legacy order)
   const { rows: unmigrated } = await pool.query(`
@@ -620,7 +645,10 @@ async function products(request, response) {
   if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
   sql += ' ORDER BY p.sort_order ASC, p.created_at DESC';
   const { rows } = await pool.query(sql, params);
-  sendJson(response, 200, { products: rows });
+  const viewer = await optionalUser(request);
+  const membershipLevel = viewer ? (viewer.membership_level || 'standard') : 'standard';
+  const enriched = rows.map(p => ({ ...p, pricing: applyMembershipPricing(p.price, membershipLevel) }));
+  sendJson(response, 200, { products: enriched, membership: { level: membershipLevel } });
 }
 
 async function productGet(request, response, productId) {
@@ -628,7 +656,10 @@ async function productGet(request, response, productId) {
     FROM products p LEFT JOIN categories c ON c.id = p.category_id
     WHERE p.id = $1 AND p.is_active = true LIMIT 1`, [productId]);
   if (!rows.length) return sendJson(response, 404, { message: 'Məhsul tapılmadı.' });
-  sendJson(response, 200, { product: rows[0] });
+  const viewer = await optionalUser(request);
+  const membershipLevel = viewer ? (viewer.membership_level || 'standard') : 'standard';
+  const product = { ...rows[0], pricing: applyMembershipPricing(rows[0].price, membershipLevel) };
+  sendJson(response, 200, { product, membership: { level: membershipLevel } });
 }
 
 async function categoriesList(request, response) {
@@ -676,7 +707,10 @@ async function categoryProducts(request, response, slug) {
   if (q) { sql += ' AND (LOWER(p.title) LIKE $' + (params.length + 1) + ' OR LOWER(p.game) LIKE $' + (params.length + 1) + ')'; params.push('%' + q + '%'); }
   sql += ' ORDER BY p.sort_order ASC, p.created_at DESC';
   const { rows } = await pool.query(sql, params);
-  sendJson(response, 200, { category, products: rows });
+  const viewer = await optionalUser(request);
+  const membershipLevel = viewer ? (viewer.membership_level || 'standard') : 'standard';
+  const enriched = rows.map(p => ({ ...p, pricing: applyMembershipPricing(p.price, membershipLevel) }));
+  sendJson(response, 200, { category, products: enriched, membership: { level: membershipLevel } });
 }
 
 async function adminCreateProduct(request, response) {
@@ -961,11 +995,12 @@ async function createOrder(request, response) {
 async function createOrderInternal({ user, items, playerId, contactEmail, customFields = {} }) {
   // items: [{ productId, quantity }]
   if (!Array.isArray(items) || items.length === 0) return { ok: false, message: 'Səbət boşdur.' };
+  const membershipLevel = user.membership_level || 'standard';
   const orderId = crypto.randomUUID();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // Fetch products with lock
+    // Fetch products with lock — always from DB, never trust client
     const productIds = items.map(it => it.productId);
     const { rows: products } = await client.query(
       'SELECT id, game, title, price, image_url, available, is_active FROM products WHERE id = ANY($1) FOR UPDATE',
@@ -973,54 +1008,101 @@ async function createOrderInternal({ user, items, playerId, contactEmail, custom
     );
     const productMap = new Map(products.map(p => [p.id, p]));
     let subtotal = 0;
+    let originalSubtotal = 0;
+    let totalBonusPoints = 0;
     const orderItems = [];
     for (const it of items) {
       const prod = productMap.get(it.productId);
       if (!prod) { await client.query('ROLLBACK'); return { ok: false, message: 'Məhsul tapılmadı.' }; }
       if (!prod.available || !prod.is_active) { await client.query('ROLLBACK'); return { ok: false, message: `${prod.title} hazırda mövcud deyil.` }; }
       const qty = Math.max(1, Math.min(99, Number(it.quantity || 1)));
-      const lineTotal = Math.round(Number(prod.price) * qty * 100) / 100;
+      // Apply membership discount via centralized pricing service
+      const pricing = applyMembershipPricing(prod.price, membershipLevel);
+      const lineTotal = Math.round(pricing.finalPrice * qty * 100) / 100;
+      const origLineTotal = Math.round(pricing.originalPrice * qty * 100) / 100;
+      const lineBonusPoints = Math.round(pricing.bonusPoints * qty * 100) / 100;
       subtotal += lineTotal;
-      orderItems.push({ productId: prod.id, game: prod.game, title: prod.title, quantity: qty, unitPrice: Number(prod.price), totalPrice: lineTotal, imageUrl: prod.image_url });
+      originalSubtotal += origLineTotal;
+      totalBonusPoints += lineBonusPoints;
+      orderItems.push({
+        productId: prod.id, game: prod.game, title: prod.title, quantity: qty,
+        unitPrice: pricing.originalPrice, finalUnitPrice: pricing.finalPrice,
+        discountPercent: pricing.discountPercent, discountAmount: pricing.discountAmount,
+        totalPrice: lineTotal, originalTotalPrice: origLineTotal,
+        bonusPoints: lineBonusPoints, membershipLevel, imageUrl: prod.image_url
+      });
     }
+    subtotal = Math.round(subtotal * 100) / 100;
+    originalSubtotal = Math.round(originalSubtotal * 100) / 100;
+    totalBonusPoints = Math.round(totalBonusPoints * 100) / 100;
+    const membershipDiscountAmount = Math.round((originalSubtotal - subtotal) * 100) / 100;
+
     const { rows: st } = await client.query("SELECT id FROM order_status WHERE code='pending' LIMIT 1");
     const statusId = st[0]?.id || null;
 
-    // Check user balance
+    // Check user balance against DISCOUNTED price (not original)
     const { rows: uRows } = await client.query('SELECT balance FROM users WHERE id = $1 FOR UPDATE', [user.id]);
     const currentBalance = Number(uRows[0].balance || 0);
     if (currentBalance < subtotal) { await client.query('ROLLBACK'); return { ok: false, status: 400, message: 'Balansınız kifayət etmir. Balansınızı artırın.' }; }
 
-    // Deduct balance
-    await client.query('UPDATE users SET balance = balance - $1 WHERE id = $2', [subtotal, user.id]);
-    // Create order
+    // Deduct discounted amount from balance
+    await client.query('UPDATE users SET balance = balance - $1, bonus_points = COALESCE(bonus_points, 0) + $2 WHERE id = $3',
+      [subtotal, totalBonusPoints, user.id]);
+    // Create order with full audit trail
     await client.query(
-      'INSERT INTO orders (id, user_id, user_email, game, package, price, player_id, status, status_id, status_code, total_amount, custom_fields, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())',
-      [orderId, user.id, contactEmail, orderItems[0].game, orderItems[0].title, subtotal, playerId, 'Gözləmədə', statusId, 'pending', subtotal, JSON.stringify(customFields)]
+      `INSERT INTO orders (id, user_id, user_email, game, package, price, player_id, status, status_id, status_code,
+        total_amount, original_amount, discount_amount, membership_discount_amount,
+        membership_level, bonus_points_earned, custom_fields, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),NOW())`,
+      [orderId, user.id, contactEmail, orderItems[0].game, orderItems[0].title, subtotal, playerId,
+       'Gözləmədə', statusId, 'pending', subtotal, originalSubtotal, membershipDiscountAmount,
+       membershipDiscountAmount, membershipLevel, totalBonusPoints, JSON.stringify(customFields)]
     );
-    // Create order items
+    // Create order items with per-item pricing audit
     for (const it of orderItems) {
       await client.query(
-        'INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, total_price, custom_fields) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-        [crypto.randomUUID(), orderId, it.productId, it.quantity, it.unitPrice, it.totalPrice, JSON.stringify(customFields)]
+        `INSERT INTO order_items (id, order_id, product_id, quantity,
+          unit_price, total_price, original_unit_price, discount_percent,
+          discount_amount, final_unit_price, membership_level, bonus_points, custom_fields)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [crypto.randomUUID(), orderId, it.productId, it.quantity,
+         it.finalUnitPrice, it.totalPrice, it.unitPrice, it.discountPercent,
+         it.discountAmount, it.finalUnitPrice, it.membershipLevel, it.bonusPoints, JSON.stringify(customFields)]
       );
     }
     // Transaction record
     await client.query(
       'INSERT INTO transactions (id, user_id, amount, type, status, ref, category, description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-      [crypto.randomUUID(), user.id, subtotal, 'debit', 'approved', orderId, 'purchase', `Sifariş: ${orderItems.map(i => i.title + ' x' + i.quantity).join(', ')}`]
+      [crypto.randomUUID(), user.id, subtotal, 'debit', 'approved', orderId, 'purchase',
+       `Sifariş: ${orderItems.map(i => i.title + ' x' + i.quantity).join(', ')}` +
+       (membershipDiscountAmount > 0 ? ` | ${membershipLevel} endirim: -${membershipDiscountAmount.toFixed(2)} AZN` : '')]
     );
     // Clear cart
     await client.query('DELETE FROM cart_items WHERE user_id = $1', [user.id]);
     // Notification
+    const discountNote = membershipDiscountAmount > 0
+      ? ` (${membershipLevel.toUpperCase()} endirim: -${membershipDiscountAmount.toFixed(2)} AZN)`
+      : '';
     await client.query(
       'INSERT INTO notifications (id, user_id, title, message, type) VALUES ($1,$2,$3,$4,$5)',
-      [crypto.randomUUID(), user.id, 'Sifariş yaradıldı', `${orderItems[0].title} (${subtotal.toFixed(2)} AZN) sifarişiniz qəbul edildi.`, 'purchase']
+      [crypto.randomUUID(), user.id, 'Sifariş yaradıldı',
+       `${orderItems[0].title} (${subtotal.toFixed(2)} AZN${discountNote}) sifarişiniz qəbul edildi.`, 'purchase']
     );
-    auditLog('order_created', { orderId, userId: user.id, amount: subtotal, items: orderItems.map(i => ({ productId: i.productId, title: i.title, quantity: i.quantity, total: i.totalPrice })) });
+    auditLog('order_created', {
+      orderId, userId: user.id, membershipLevel,
+      originalAmount: originalSubtotal, discountAmount: membershipDiscountAmount,
+      finalAmount: subtotal, bonusPoints: totalBonusPoints,
+      items: orderItems.map(i => ({ productId: i.productId, title: i.title, quantity: i.quantity,
+        originalPrice: i.unitPrice, finalPrice: i.finalUnitPrice, discount: i.discountPercent + '%' }))
+    });
     await client.query('COMMIT');
     ssePushState(user.id);
-    return { ok: true, order: { id: orderId, status: 'pending', statusCode: 'pending', totalAmount: subtotal, items: orderItems } };
+    return { ok: true, order: {
+      id: orderId, status: 'pending', statusCode: 'pending',
+      totalAmount: subtotal, originalAmount: originalSubtotal,
+      membershipDiscountAmount, membershipLevel, bonusPointsEarned: totalBonusPoints,
+      items: orderItems
+    }};
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('createOrderInternal error:', e);
@@ -1037,13 +1119,22 @@ async function cartCheckout(request, response) {
   const contactEmail = String(body.email || user.email).trim().toLowerCase();
   const customFields = typeof body.customFields === 'object' && body.customFields !== null ? body.customFields : {};
   if (!playerId) return sendJson(response, 400, { message: 'Oyunçu ID tələb olunur.' });
-  // Load cart
-  const cart = await dbCartSummary(user.id);
-  if (!cart.items.length) return sendJson(response, 400, { message: 'Səbət boşdur.' });
-  const items = cart.items.map(it => ({ productId: it.productId, quantity: it.quantity }));
+  // Load cart items (prices will be re-validated server-side in createOrderInternal)
+  const { rows: cartRows } = await pool.query(
+    'SELECT product_id, quantity FROM cart_items WHERE user_id = $1',
+    [user.id]
+  );
+  if (!cartRows.length) return sendJson(response, 400, { message: 'Səbət boşdur.' });
+  const items = cartRows.map(r => ({ productId: r.product_id, quantity: r.quantity }));
   const result = await createOrderInternal({ user, items, playerId, contactEmail, customFields });
   if (!result.ok) return sendJson(response, result.status || 400, { message: result.message });
-  sendJson(response, 200, { message: 'Sifariş uğurla tamamlandı.', order: result.order });
+  const discountMsg = result.order.membershipDiscountAmount > 0
+    ? ` (${result.order.membershipLevel.toUpperCase()} endirim: -${result.order.membershipDiscountAmount.toFixed(2)} AZN)` : '';
+  sendJson(response, 200, {
+    message: `Sifariş uğurla tamamlandı.${discountMsg}`,
+    order: result.order,
+    bonusPointsEarned: result.order.bonusPointsEarned
+  });
 }
 
 async function orderWithItems(orderId) {
@@ -1736,9 +1827,11 @@ async function submitDeposit(request, response) {
   await fs.writeFile(path.join(UPLOADS_DIR, filename), file.data);
 
   const id = crypto.randomUUID();
+  const paymentMethod = String(parsed.fields.payment_method || 'bank_transfer').slice(0, 50);
+  const userIp = request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.socket?.remoteAddress || null;
   await pool.query(
-    'INSERT INTO deposit_requests (id, user_id, receipt_image, requested_amount, status) VALUES ($1,$2,$3,$4,$5)',
-    [id, user.id, filename, amount, 'pending']
+    'INSERT INTO deposit_requests (id, user_id, receipt_image, requested_amount, status, payment_method, user_ip) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+    [id, user.id, filename, amount, 'pending', paymentMethod, userIp]
   );
   sendJson(response, 201, { message: 'Depozit sorğunuz göndərildi. Admin təsdiqini gözləyin.', requestId: id });
 }
@@ -1746,7 +1839,9 @@ async function submitDeposit(request, response) {
 async function listMyDeposits(request, response) {
   const user = await requireUser(request, response); if (!user) return;
   const { rows } = await pool.query(
-    'SELECT id, receipt_image, requested_amount, status, admin_note, created_at, approved_at FROM deposit_requests WHERE user_id = $1 ORDER BY created_at DESC',
+    `SELECT id, receipt_image, requested_amount, approved_amount, status, admin_note, rejection_reason,
+       payment_method, reference_number, created_at, approved_at, rejected_at, updated_at
+     FROM deposit_requests WHERE user_id = $1 ORDER BY created_at DESC`,
     [user.id]
   );
   sendJson(response, 200, { deposits: rows });
@@ -1913,10 +2008,34 @@ async function dbCleanupSessions() {
 // ==========================================================
 
 const MEMBERSHIP_TIERS = {
-  standard: { label: 'Standard', discount: 0, threshold: 0, badge: 'Standard', priority: 0 },
-  vip:      { label: 'VIP',      discount: 0.10, threshold: 100, badge: 'VIP', priority: 1 },
-  premium:  { label: 'Premium',  discount: 0.20, threshold: 500, badge: 'Premium', priority: 2 }
+  standard: { label: 'Standard', discount: 0,    threshold: 0,   badge: 'Standard', priority: 0, bonusRate: 0.01 },
+  vip:      { label: 'VIP',      discount: 0.10, threshold: 100, badge: 'VIP',      priority: 1, bonusRate: 0.05 },
+  premium:  { label: 'Premium',  discount: 0.20, threshold: 500, badge: 'Premium',  priority: 2, bonusRate: 0.10 }
 };
+
+// ============================================================
+// CENTRALIZED PRICING SERVICE — single source of truth
+// Every price on the platform flows through this function.
+// Never duplicate discount logic elsewhere.
+// ============================================================
+function applyMembershipPricing(basePrice, membershipLevel) {
+  const tier = MEMBERSHIP_TIERS[membershipLevel] || MEMBERSHIP_TIERS.standard;
+  const base = Math.round(Number(basePrice) * 100) / 100;
+  const discountFrac = tier.discount;
+  const discountAmount = Math.round(base * discountFrac * 100) / 100;
+  const finalPrice = Math.round((base - discountAmount) * 100) / 100;
+  const bonusPoints = Math.round(finalPrice * tier.bonusRate * 100) / 100;
+  return {
+    originalPrice: base,
+    discountPercent: Math.round(discountFrac * 100),
+    discountAmount,
+    finalPrice,
+    membershipLevel: membershipLevel || 'standard',
+    membershipLabel: tier.label,
+    membershipBadge: tier.badge,
+    bonusPoints
+  };
+}
 
 function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 
@@ -2112,6 +2231,22 @@ async function getUserStatistics(userId) {
 // ==========================================
 // ROUTE LOGIC
 // ==========================================
+
+// Try to identify the authenticated user without sending a 401 response.
+// Used by public product APIs to enrich responses with membership pricing.
+async function optionalUser(request) {
+  try {
+    const token = getAuthToken(request);
+    let userId = null;
+    if (token) {
+      try { const payload = jwt.verify(token, JWT_SECRET); userId = payload.sub; } catch {}
+    }
+    if (!userId) userId = await dbGetSessionUserId(token);
+    if (!userId) return null;
+    const user = await dbFindUserById(userId);
+    return (user && user.status !== 'suspended') ? user : null;
+  } catch { return null; }
+}
 
 async function requireUser(request, response) {
   const token = getAuthToken(request);
@@ -2746,7 +2881,8 @@ async function recentOrders(request, response) {
 // CART API
 // ==========================================
 
-async function dbCartSummary(userId) {
+async function dbCartSummary(userId, membershipLevel) {
+  membershipLevel = membershipLevel || 'standard';
   const { rows } = await pool.query(
     `SELECT ci.id, ci.product_id, ci.quantity, ci.created_at,
             p.game, p.title, p.price, p.image_url, p.available
@@ -2756,25 +2892,39 @@ async function dbCartSummary(userId) {
      ORDER BY ci.created_at DESC`,
     [userId]
   );
-  const items = rows.map(r => ({
-    id: r.id,
-    productId: r.product_id,
-    game: r.game,
-    title: r.title,
-    price: Number(r.price),
-    imageUrl: r.image_url,
-    available: r.available,
-    quantity: r.quantity,
-    lineTotal: Math.round(Number(r.price) * r.quantity * 100) / 100
-  }));
+  const items = rows.map(r => {
+    const pricing = applyMembershipPricing(r.price, membershipLevel);
+    return {
+      id: r.id,
+      productId: r.product_id,
+      game: r.game,
+      title: r.title,
+      price: pricing.originalPrice,
+      unitPrice: pricing.finalPrice,
+      originalPrice: pricing.originalPrice,
+      discountPercent: pricing.discountPercent,
+      discountAmount: pricing.discountAmount,
+      finalUnitPrice: pricing.finalPrice,
+      membershipLabel: pricing.membershipLabel,
+      membershipBadge: pricing.membershipBadge,
+      imageUrl: r.image_url,
+      available: r.available,
+      quantity: r.quantity,
+      pricing,
+      lineTotal: Math.round(pricing.finalPrice * r.quantity * 100) / 100,
+      originalLineTotal: Math.round(pricing.originalPrice * r.quantity * 100) / 100
+    };
+  });
   const subtotal = Math.round(items.reduce((s, i) => s + i.lineTotal, 0) * 100) / 100;
+  const originalSubtotal = Math.round(items.reduce((s, i) => s + i.originalLineTotal, 0) * 100) / 100;
+  const totalDiscount = Math.round((originalSubtotal - subtotal) * 100) / 100;
   const count = items.reduce((s, i) => s + i.quantity, 0);
-  return { items, subtotal, count, currency: 'AZN' };
+  return { items, subtotal, originalSubtotal, totalDiscount, count, currency: 'AZN', membershipLevel };
 }
 
 async function cartGet(request, response) {
   const user = await requireUser(request, response); if (!user) return;
-  sendJson(response, 200, { cart: await dbCartSummary(user.id) });
+  sendJson(response, 200, { cart: await dbCartSummary(user.id, user.membership_level) });
 }
 
 async function cartAddItem(request, response) {
@@ -2801,7 +2951,7 @@ async function cartAddItem(request, response) {
      DO UPDATE SET quantity = LEAST(cart_items.quantity + EXCLUDED.quantity, 99), updated_at = CURRENT_TIMESTAMP`,
     [id, user.id, productId, quantity]
   );
-  const cart = await dbCartSummary(user.id);
+  const cart = await dbCartSummary(user.id, user.membership_level);
   ssePushState(user.id);
   sendJson(response, 201, { message: 'Səbətə əlavə edildi.', cart });
 }
@@ -2823,7 +2973,7 @@ async function cartUpdateItem(request, response, itemId) {
     );
     if (rowCount === 0) return sendJson(response, 404, { message: 'Səbət elementi tapılmadı.' });
   }
-  const cart = await dbCartSummary(user.id);
+  const cart = await dbCartSummary(user.id, user.membership_level);
   ssePushState(user.id);
   sendJson(response, 200, { message: 'Səbət yeniləndi.', cart });
 }
@@ -2832,7 +2982,7 @@ async function cartRemoveItem(request, response, itemId) {
   const user = await requireUser(request, response); if (!user) return;
   const { rowCount } = await pool.query('DELETE FROM cart_items WHERE id = $1 AND user_id = $2', [itemId, user.id]);
   if (rowCount === 0) return sendJson(response, 404, { message: 'Səbət elementi tapılmadı.' });
-  const cart = await dbCartSummary(user.id);
+  const cart = await dbCartSummary(user.id, user.membership_level);
   ssePushState(user.id);
   sendJson(response, 200, { message: 'Səbətdən silindi.', cart });
 }
@@ -2840,7 +2990,7 @@ async function cartRemoveItem(request, response, itemId) {
 async function cartClear(request, response) {
   const user = await requireUser(request, response); if (!user) return;
   await pool.query('DELETE FROM cart_items WHERE user_id = $1', [user.id]);
-  const cart = await dbCartSummary(user.id);
+  const cart = await dbCartSummary(user.id, user.membership_level);
   ssePushState(user.id);
   sendJson(response, 200, { message: 'Səbət təmizləndi.', cart });
 }

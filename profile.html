@@ -21,6 +21,7 @@
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" onerror="window.__cdnError('React')"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" onerror="window.__cdnError('ReactDOM')"></script>
 <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js" onerror="window.__cdnError('Babel')"></script>
+<script src="/assets/logo-component.js"></script>
 <script>
   tailwind.config = {
     theme: {
@@ -110,17 +111,6 @@ function statusLabel(code) {
   return 'Gözləmədə';
 }
 
-function Logo() {
-  return <a href="/" className="flex items-center gap-3">
-    <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-200 via-gold to-orange-500 shadow-gold">
-      <img className="h-[145%] w-[145%] object-cover drop-shadow-[0_0_10px_rgba(255,179,0,.55)]" src="assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"/>
-    </div>
-    <div>
-      <div className="font-orbitron text-lg font-black tracking-[.18em] text-gold sm:text-xl">ZELIX TOPUP</div>
-      <div className="font-rajdhani text-[10px] font-bold tracking-[.32em] text-white/40">PREMIUM GAMING MARKET</div>
-    </div>
-  </a>;
-}
 
 function Avatar({ size = 'h-24 w-24', ring = 'border-violet' }) {
   return <div className={`${size} grid place-items-center overflow-hidden rounded-full border-2 ${ring} bg-black shadow-violet`}>
