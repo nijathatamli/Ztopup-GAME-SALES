@@ -122,12 +122,14 @@ function showToast(msg, type='good'){
 
 let products = [];
 let categoryData = null;
+let userMembership = { level: 'standard' };
 
 async function loadCategory(){
   try {
     const data = await api('/api/category/' + slug + '/products');
     categoryData = data.category || {};
     products = data.products || [];
+    userMembership = data.membership || { level: 'standard' };
     document.getElementById('catTitle').textContent = categoryData.name;
     document.getElementById('catDesc').textContent = categoryData.description || '';
     document.getElementById('catMeta').textContent = products.length + ' məhsul';
@@ -142,6 +144,12 @@ async function loadCategory(){
   }
 }
 
+function membershipBadgeHtml(level) {
+  if (level === 'premium') return '<span class="rounded-md border border-purple-400/40 bg-purple-500/10 px-2 py-1 text-[11px] font-black text-purple-300">PREMIUM -20%</span>';
+  if (level === 'vip') return '<span class="rounded-md border border-blue-400/40 bg-blue-500/10 px-2 py-1 text-[11px] font-black text-blue-300">VIP -10%</span>';
+  return '';
+}
+
 function productBadges(p){
   const badges = [];
   if (Array.isArray(p.badges)) {
@@ -150,14 +158,23 @@ function productBadges(p){
   if (p.is_featured) badges.push('<span class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-black text-emerald-300">FEATURED</span>');
   if (Number(p.discount_percent) > 0) badges.push(`<span class="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] font-black text-red-300">-${p.discount_percent}%</span>`);
   if (Number(p.stock_quantity) > 0) badges.push(`<span class="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-[11px] font-black text-white/70">Stok: ${p.stock_quantity}</span>`);
+  const memLevel = userMembership.level || 'standard';
+  if (memLevel !== 'standard') badges.push(membershipBadgeHtml(memLevel));
   return badges.length ? `<div class="mb-2 flex flex-wrap gap-1">${badges.join('')}</div>` : '';
 }
 
 function priceBlock(p){
+  const pr = p.pricing;
+  if (pr && pr.discountPercent > 0) {
+    return `<div style="text-align:right">
+      <div class="text-xs text-white/40 line-through">${pr.originalPrice.toFixed(2)} ₼</div>
+      <div class="font-orbitron text-xl font-black text-gold">${pr.finalPrice.toFixed(2)} ₼</div>
+    </div>`;
+  }
   const old = Number(p.old_price || 0);
   const price = Number(p.price || 0);
   if (old > price) {
-    return `<div class="font-orbitron text-xl font-black text-gold">${price.toFixed(2)} ₼</div><div class="text-xs text-white/40 line-through">${old.toFixed(2)} ₼</div>`;
+    return `<div style="text-align:right"><div class="font-orbitron text-xl font-black text-gold">${price.toFixed(2)} ₼</div><div class="text-xs text-white/40 line-through">${old.toFixed(2)} ₼</div></div>`;
   }
   return `<div class="font-orbitron text-xl font-black text-gold">${price.toFixed(2)} ₼</div>`;
 }
@@ -225,7 +242,11 @@ function render(list, catImage){
 function openCheckout(pid){
   const p = products.find(x => x.id === pid);
   if (!p) return;
-  document.getElementById('checkoutProduct').innerHTML = `<strong class="text-white">${p.title}</strong> — ${Number(p.price).toFixed(2)} ₼`;
+  const pr = p.pricing;
+  const displayPrice = (pr && pr.discountPercent > 0)
+    ? `<span class="line-through text-white/40 text-sm">${pr.originalPrice.toFixed(2)} ₼</span> <span class="text-gold font-black">${pr.finalPrice.toFixed(2)} ₼</span>`
+    : `${Number(p.price).toFixed(2)} ₼`;
+  document.getElementById('checkoutProduct').innerHTML = `<strong class="text-white">${p.title}</strong> — ${displayPrice}`;
   const fields = categoryData?.fields || [];
   const html = fields.map(f => {
     const required = f.required ? 'required' : '';

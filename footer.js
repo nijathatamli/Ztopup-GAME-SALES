@@ -126,14 +126,16 @@
       margin-bottom: 20px;
     }
     .ztopup-footer-brand .z-logo-mark {
-      width: 42px; height: 42px; border-radius: 13px;
+      width: 46px; height: 46px; border-radius: 15px;
       display: grid; place-items: center;
-      font-family: 'Orbitron', sans-serif;
-      font-size: 22px; font-weight: 900;
-      color: #070400;
+      overflow: hidden; position: relative;
       background: linear-gradient(135deg, #ffe08a 0%, var(--z-gold) 45%, #ff7a00 100%);
       box-shadow: var(--z-gold-glow), 0 0 28px rgba(255,179,0,0.22);
       flex-shrink: 0;
+    }
+    .ztopup-footer-brand .z-logo-mark img {
+      width: 145%; height: 145%; object-fit: cover; display: block;
+      filter: drop-shadow(0 0 10px rgba(255,179,0,.55));
     }
     .ztopup-footer-brand .z-logo-text {
       font-family: 'Orbitron', sans-serif;
@@ -362,7 +364,9 @@
             <!-- COMPANY INFO -->
             <div class="ztopup-footer-brand">
               <div class="z-logo">
-                <div class="z-logo-mark" aria-hidden="true">Z</div>
+                <div class="z-logo-mark">
+                  <img src="/assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"/>
+                </div>
                 <div class="z-logo-text">ZELIX <span>TOPUP</span></div>
               </div>
               <p class="z-desc">${CONFIG.company.description}</p>

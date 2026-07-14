@@ -77,6 +77,10 @@
             <span>Ara cəmi</span>
             <span id="summarySubtotal" class="text-white">0.00 ₼</span>
           </div>
+          <div id="summarySavings" class="flex items-center justify-between font-rajdhani text-sm font-bold text-emerald-400" style="display:none">
+            <span>Üzvlük endirimi</span>
+            <span id="summarySavingsAmt">-0.00 ₼</span>
+          </div>
           <div class="flex items-center justify-between font-rajdhani text-sm font-bold text-white/70">
             <span>Cari balans</span>
             <span id="summaryBalance" class="text-white">0.00 ₼</span>
@@ -155,6 +159,17 @@ function updateSummary(){
   document.getElementById('summaryTotal').textContent = fmt(cart.subtotal);
   const remaining = balance - (cart.subtotal || 0);
   document.getElementById('summaryRemaining').textContent = fmt(remaining);
+  // Show membership savings row if applicable
+  const savingsEl = document.getElementById('summarySavings');
+  if (savingsEl) {
+    const savings = Number(cart.totalDiscount || 0);
+    if (savings > 0) {
+      savingsEl.style.display = '';
+      document.getElementById('summarySavingsAmt').textContent = '-' + fmt(savings);
+    } else {
+      savingsEl.style.display = 'none';
+    }
+  }
   const warning = document.getElementById('balanceWarning');
   const checkout = document.getElementById('checkoutBtn');
   if (balance < (cart.subtotal || 0)) {
@@ -180,13 +195,22 @@ function render(){
     updateSummary();
     return;
   }
-  list.innerHTML = cart.items.map(it => `
+  list.innerHTML = cart.items.map(it => {
+    const hasDiscount = it.discountPercent > 0;
+    const unitDisplay = hasDiscount
+      ? `<span class="text-white/40 line-through text-xs">${fmt(it.originalPrice)}</span> <span class="text-gold font-black">${fmt(it.finalUnitPrice || it.unitPrice)}</span>`
+      : `<span class="text-gold font-black">${fmt(it.unitPrice || it.price)}</span>`;
+    const lineFmt = fmt(it.lineTotal);
+    const memberBadge = hasDiscount
+      ? `<span style="font-size:10px;padding:1px 5px;border-radius:5px;border:1px solid rgba(59,130,246,.4);background:rgba(59,130,246,.1);color:#93c5fd;font-weight:900;margin-left:4px">${it.membershipLabel} -${it.discountPercent}%</span>`
+      : '';
+    return `
     <div class="flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[.03] p-4 sm:flex-row sm:items-center">
       <img src="${it.imageUrl || '/assets/zelix-generated-logo.svg'}" class="h-20 w-20 rounded-xl border border-white/10 bg-white/[.06] object-cover p-1" onerror="this.src='/assets/zelix-generated-logo.svg'">
       <div class="flex-1 min-w-0">
-        <div class="font-orbitron text-lg font-black truncate">${it.title}</div>
+        <div class="font-orbitron text-lg font-black truncate">${it.title}${memberBadge}</div>
         <div class="font-rajdhani text-sm text-white/50">${it.game || ''}</div>
-        <div class="mt-1 font-orbitron text-sm font-black text-gold">${fmt(it.unitPrice || it.price)}</div>
+        <div class="mt-1 font-orbitron text-sm">${unitDisplay}</div>
       </div>
       <div class="flex items-center gap-4">
         <div class="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-2 py-1">
@@ -194,13 +218,14 @@ function render(){
           <span class="qty font-orbitron w-6 text-center" data-id="${it.id}">${it.quantity}</span>
           <button class="qty-inc px-2 text-white/70 hover:text-white" data-id="${it.id}">+</button>
         </div>
-        <div class="font-orbitron text-lg font-black text-gold min-w-[90px] text-right">${fmt((it.unitPrice || it.price) * it.quantity)}</div>
+        <div class="font-orbitron text-lg font-black text-gold min-w-[90px] text-right">${lineFmt}</div>
         <button class="remove-btn text-white/40 transition hover:text-red-300" data-id="${it.id}" aria-label="Sil">
           <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   document.querySelectorAll('.qty-inc').forEach(b => b.addEventListener('click', async () => {
     const el = document.querySelector(`.qty[data-id="${b.dataset.id}"]`);

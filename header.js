@@ -277,7 +277,7 @@
       <div class="ztopup-header">
         <header class="header">
           <a href="${CONFIG.brand.home}" class="logo">
-            <div class="logo-mark"><img src="assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"></div>
+            <div class="logo-mark"><img src="/assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"></div>
             <div class="brand">${CONFIG.brand.name}</div>
           </a>
           <div class="header-actions">
@@ -380,7 +380,7 @@
       <aside class="z-drawer ${mobileMenuOpen ? 'z-open' : ''}" id="ztopupDrawer" aria-hidden="${mobileMenuOpen ? 'false' : 'true'}">
         <div class="z-drawer-head">
           <a href="${CONFIG.brand.home}" class="z-drawer-brand">
-            <div class="logo-mark"><img src="assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"></div>
+            <div class="logo-mark"><img src="/assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"></div>
             <span>${CONFIG.brand.name}</span>
           </a>
           <button class="z-drawer-close" id="ztopupDrawerClose" type="button" aria-label="Bağla">${ICONS.close}</button>
