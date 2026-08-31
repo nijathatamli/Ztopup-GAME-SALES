@@ -16,7 +16,7 @@
 
     var img = React.createElement('img', {
       className : 'h-[145%] w-[145%] object-cover drop-shadow-[0_0_10px_rgba(255,179,0,.55)]',
-      src       : '/assets/zelix-generated-logo.svg',
+      src       : '/assets/ztopup-logo-gold.png',
       alt       : 'ZELIX TOPUP logo'
     });
 

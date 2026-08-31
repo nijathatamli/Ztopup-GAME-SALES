@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ZELIX TOPUP | Məhsullar</title>
-  <link rel="icon" type="image/svg+xml" href="/assets/zelix-generated-logo.svg">
-  <link rel="alternate icon" href="/assets/zelix-logo.png">
-  <link rel="apple-touch-icon" href="/assets/zelix-logo.png">
+  <link rel="icon" type="image/png" href="/assets/ztopup-logo-gold.png">
+  <link rel="alternate icon" href="/assets/ztopup-logo-gold.png">
+  <link rel="apple-touch-icon" href="/assets/ztopup-logo-gold.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@600;700;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
@@ -78,12 +78,12 @@
         }
         grid.innerHTML = cats.map(cat => {
           const slug = cat.slug || cat.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-          const img = cat.image_url || '/assets/zelix-generated-logo.svg';
+          const img = cat.image_url || '/assets/ztopup-logo-gold.png';
           return `
             <a href="/category/${slug}" class="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#101018] p-0 shadow-[0_18px_50px_rgba(0,0,0,.32)] transition hover:-translate-y-0.5 hover:border-gold/30">
               <div class="absolute inset-0 opacity-80" style="background: radial-gradient(circle at 50% 32%, rgba(255,179,0,.18), transparent 48%)"></div>
               <div class="relative z-10 grid h-44 place-items-center">
-                <img src="${img}" alt="${cat.name}" class="max-h-28 w-auto object-contain transition group-hover:scale-105" loading="lazy" onerror="this.src='/assets/zelix-generated-logo.svg'"/>
+                <img src="${img}" alt="${cat.name}" class="max-h-28 w-auto object-contain transition group-hover:scale-105" loading="lazy" onerror="this.src='/assets/ztopup-logo-gold.png'"/>
               </div>
               <div class="relative z-10 flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
                 <div class="font-rajdhani text-sm font-black tracking-[.08em]">${cat.name}</div>
