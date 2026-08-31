@@ -365,7 +365,7 @@
             <div class="ztopup-footer-brand">
               <div class="z-logo">
                 <div class="z-logo-mark">
-                  <img src="/assets/zelix-generated-logo.svg" alt="ZELIX TOPUP logo"/>
+                  <img src="/assets/ztopup-logo-gold.png" alt="ZELIX TOPUP logo"/>
                 </div>
                 <div class="z-logo-text">ZELIX <span>TOPUP</span></div>
               </div>

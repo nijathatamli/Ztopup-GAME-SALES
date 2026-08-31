@@ -4,9 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Kateqoriya | ZELIX TOPUP</title>
-<link rel="icon" type="image/svg+xml" href="/assets/zelix-generated-logo.svg">
-<link rel="alternate icon" href="/assets/zelix-logo.png">
-<link rel="apple-touch-icon" href="/assets/zelix-logo.png">
+<link rel="icon" type="image/png" href="/assets/ztopup-logo-gold.png">
+<link rel="alternate icon" href="/assets/ztopup-logo-gold.png">
+<link rel="apple-touch-icon" href="/assets/ztopup-logo-gold.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@700;800;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
@@ -189,12 +189,12 @@ function render(list, catImage){
   }
   empty.classList.add('hidden');
   grid.innerHTML = list.map(p => {
-    const img = p.image_url || catImage || '/assets/zelix-generated-logo.svg';
+    const img = p.image_url || catImage || '/assets/ztopup-logo-gold.png';
     return `
       <div class="rounded-2xl border border-white/10 bg-white/[.03] p-4 transition hover:border-gold/30">
         ${productBadges(p)}
         <div class="flex items-center gap-3">
-          <img src="${img}" alt="${p.title}" class="h-12 w-12 rounded-xl border border-white/10 bg-white/[.06] p-1 object-cover" onerror="this.src='/assets/zelix-generated-logo.svg'">
+          <img src="${img}" alt="${p.title}" class="h-12 w-12 rounded-xl border border-white/10 bg-white/[.06] p-1 object-cover" onerror="this.src='/assets/ztopup-logo-gold.png'">
           <div class="font-orbitron text-lg font-black">${p.title}</div>
         </div>
         <div class="mt-3 flex items-center justify-between">
