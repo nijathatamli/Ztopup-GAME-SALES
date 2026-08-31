@@ -30,125 +30,6 @@
   h1,h2,h3,.brand,.navbtn,.cta,.badge,.section-title{font-family:'Orbitron','Rajdhani',sans-serif}
   button{font:inherit}
   .app{min-height:100vh;overflow:hidden;padding-bottom:0;position:relative}
-  .header{
-    position:sticky;
-    top:0;
-    z-index:40;
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:22px;
-    padding:18px clamp(18px,4vw,64px);
-    border-bottom:var(--line);
-    background:rgba(5,5,5,0.72);
-    backdrop-filter:blur(22px);
-  }
-  .logo{display:flex;align-items:center;gap:12px;min-width:max-content}
-  .logo-mark{
-    width:46px;height:46px;border-radius:15px;
-    display:grid;place-items:center;
-    position:relative;
-    overflow:hidden;
-    color:#070400;
-    font-family:'Orbitron',sans-serif;
-    font-size:25px;
-    font-weight:900;
-    background:linear-gradient(135deg,#ffe08a 0%,var(--gold) 45%,#ff7a00 100%);
-    box-shadow:var(--gold-glow),0 0 32px rgba(255,179,0,0.26);
-  }
-  .logo-mark img{
-    width:145%;
-    height:145%;
-    object-fit:cover;
-    border-radius:inherit;
-    display:block;
-    filter:drop-shadow(0 0 10px rgba(255,179,0,.55));
-  }
-  .logo-mark::after{
-    content:"";
-    position:absolute;
-    inset:-40%;
-    background:linear-gradient(90deg,transparent,rgba(255,255,255,0.55),transparent);
-    transform:rotate(35deg) translateX(-70%);
-    animation:shine 4.8s ease-in-out infinite;
-  }
-  @keyframes shine{50%,100%{transform:rotate(35deg) translateX(90%)}}
-  .brand{color:var(--gold);font-size:19px;font-weight:900;letter-spacing:.12em;text-shadow:0 0 16px rgba(255,179,0,.4)}
-  .header-actions{display:flex;align-items:center;gap:16px}
-  .nav{
-    display:flex;
-    align-items:center;
-    gap:6px;
-    padding:6px;
-    border:var(--line);
-    border-radius:999px;
-    background:rgba(17,17,26,.7);
-    box-shadow:inset 0 1px 0 rgba(255,255,255,.07);
-  }
-  .navbtn{
-    border:0;
-    border-radius:999px;
-    padding:10px 14px;
-    background:transparent;
-    color:rgba(255,255,255,.72);
-    font-size:12px;
-    font-weight:800;
-    letter-spacing:.05em;
-    cursor:pointer;
-    transition:.22s ease;
-    display:flex;
-    align-items:center;
-    gap:6px;
-  }
-  .navbtn.active,.navbtn:hover{
-    background:linear-gradient(135deg,var(--gold),#ff8c00);
-    color:#120a00;
-    box-shadow:var(--gold-glow);
-  }
-  .login{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    border:1px solid rgba(255,179,0,.48);
-    border-radius:10px;
-    padding:11px 17px;
-    color:var(--gold);
-    background:linear-gradient(180deg,rgba(255,179,0,.14),rgba(255,179,0,.05));
-    box-shadow:0 0 22px rgba(255,179,0,.12);
-    cursor:pointer;
-    transition:.22s ease;
-    font-family:'Rajdhani',sans-serif;
-    font-size:15px;
-    font-weight:700;
-  }
-  .login:hover{transform:translateY(-1px);box-shadow:var(--gold-glow)}
-  .login svg{width:17px;height:17px}
-  .user-chip{
-    display:none;
-    align-items:center;
-    gap:10px;
-    border:1px solid rgba(0,200,255,.32);
-    border-radius:999px;
-    padding:7px 10px 7px 7px;
-    background:rgba(0,200,255,.08);
-    color:#fff;
-    font-family:'Rajdhani',sans-serif;
-    font-weight:800;
-    box-shadow:var(--blue-glow);
-  }
-  .user-avatar{
-    width:30px;height:30px;border-radius:50%;
-    display:grid;place-items:center;
-    background:linear-gradient(135deg,var(--blue),var(--purple));
-    color:#02020a;
-  }
-  .logout{
-    border:0;
-    color:var(--gold);
-    background:transparent;
-    cursor:pointer;
-    font-weight:800;
-  }
   .main{width:min(1220px,100%);margin:0 auto;padding:30px clamp(16px,4vw,64px) 54px}
   .hero{
     position:relative;
@@ -245,6 +126,7 @@
     pointer-events:none;
   }
   .banner-slide.active{opacity:1;pointer-events:auto}
+  .banner-slide picture{display:block;width:100%;height:100%}
   .banner-slide img{
     width:100%;height:100%;object-fit:cover;border-radius:28px;
     border:1px solid rgba(255,255,255,.08);
@@ -367,6 +249,8 @@
   .promo-kicker{color:var(--blue);font-family:'Rajdhani',sans-serif;font-size:18px;font-weight:800;letter-spacing:.18em}
   .promo h2{margin-top:6px;font-size:clamp(34px,5vw,62px);line-height:.96;color:var(--gold);text-shadow:0 0 26px rgba(255,179,0,.42)}
   .promo p{margin-top:12px;color:var(--muted);font-size:17px;font-weight:600}
+  .trust-banner{position:relative;margin-top:28px;border:var(--line);border-radius:28px;overflow:hidden;aspect-ratio:1852/849}
+  .trust-banner img{width:100%;height:100%;object-fit:cover;display:block}
   .security-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
   .security{
     border:1px solid rgba(255,255,255,.11);
@@ -571,28 +455,19 @@
   }
   .auth-message.error{color:#ff6868}
   @media (max-width:980px){
-    .header{flex-wrap:wrap}
-    .header-actions{width:100%;justify-content:space-between}
     .hero-content{grid-template-columns:1fr}
-    .hero-art{height:390px}
     .stats{grid-template-columns:repeat(2,1fr)}
     .promo{grid-template-columns:1fr}
     .category-grid{grid-template-columns:repeat(2,1fr)}
   }
   @media (max-width:620px){
     .app{padding-bottom:92px}
-    .header{padding:14px 16px}
-    .logo-mark{width:40px;height:40px;font-size:22px;border-radius:13px}
-    .brand{font-size:14px}
-    .header-actions{width:auto}
-    .login{padding:9px 12px;font-size:14px}
     .main{padding:18px 14px 34px}
     .hero{min-height:0;border-radius:24px;padding:26px 18px 18px}
     .hero-title{font-size:38px}
     .hero-title span{font-size:44px}
     .hero-subtitle{font-size:15px}
     .feature{font-size:14px}
-    .hero-art{height:330px;margin-top:12px}
     .z-core{width:135px;height:135px;border-radius:32px;font-size:70px}
     .energy-ring{width:224px;height:224px}
     .fighter{width:112px;height:166px;border-radius:22px;font-size:56px}
@@ -651,13 +526,23 @@
       <section class="hero">
         <div class="hero-art" id="heroArt">
           <div class="banner-slide active" data-slide="0">
-            <img src="/banners/first_banner.jpg" alt="Banner 1" loading="eager">
+            <picture>
+              <!-- Drop a dedicated mobile crop here later, e.g. srcset="/banners/first_banner-mobile.jpg" -->
+              <source media="(max-width: 640px)" srcset="/banners/first_banner.jpg">
+              <img src="/banners/first_banner.jpg" alt="Banner 1" loading="eager">
+            </picture>
           </div>
           <div class="banner-slide" data-slide="1">
-            <img src="/banners/second_banner.jpg" alt="Banner 2" loading="lazy">
+            <picture>
+              <source media="(max-width: 640px)" srcset="/banners/second_banner.jpg">
+              <img src="/banners/second_banner.jpg" alt="Banner 2" loading="lazy">
+            </picture>
           </div>
           <div class="banner-slide" data-slide="2">
-            <img src="/banners/third_banner.jpg" alt="Banner 3" loading="lazy">
+            <picture>
+              <source media="(max-width: 640px)" srcset="/banners/third_banner.jpg">
+              <img src="/banners/third_banner.jpg" alt="Banner 3" loading="lazy">
+            </picture>
           </div>
         </div>
       </section>
@@ -674,8 +559,8 @@
         <div class="stat"><div class="stat-icon">💼</div><h3>Professional</h3><p>Xidmət keyfiyyəti</p></div>
       </section>
       <!-- TRUST -->
-      <section class="promo" style="display:block; padding:0; overflow:hidden;">
-        <img src="/banners/image.png" alt="Promo banner" style="width:100%; height:100%; object-fit:cover; display:block;">
+      <section class="trust-banner">
+        <img src="/banners/image.png" alt="Promo banner">
       </section>
       <!-- CATEGORIES -->
       <section id="categories">

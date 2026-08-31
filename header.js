@@ -23,6 +23,7 @@
     balanceTopup: '/balance/topup',
     cartPage: '/cart',
     authModal: '#authOverlay',
+    supportLink: 'https://wa.me/994501234567',
   };
 
   let currentUser = null;
@@ -55,6 +56,7 @@
     caret: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`,
     orders: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6a1 1 0 0 1 1 1v1h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2V3a1 1 0 0 1 1-1Z"/><path d="M9 4h6"/><path d="M8 11h8M8 15h5"/></svg>`,
     settings: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>`,
+    headset: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>`,
   };
 
   function h(html) {
@@ -281,6 +283,10 @@
             <div class="brand">${CONFIG.brand.name}</div>
           </a>
           <div class="header-actions">
+            <a href="${CONFIG.supportLink}" target="_blank" rel="noopener noreferrer" class="z-support-btn" aria-label="Dəstək xidməti ilə əlaqə saxlayın (WhatsApp)">
+              ${ICONS.headset}
+              <span class="z-support-label">Dəstək</span>
+            </a>
             <nav class="nav" aria-label="Əsas naviqasiya">${navItems}</nav>
             <button class="login ${currentUser ? 'z-hidden' : ''}" id="ztopupLoginBtn" type="button">
               ${ICONS.user}
@@ -741,6 +747,29 @@
     .ztopup-header .login:hover { transform: translateY(-1px); box-shadow: var(--z-gold-glow); }
     .ztopup-header .login svg { width: 17px; height: 17px; }
 
+    /* ===== Support / help quick-contact button ===== */
+    .ztopup-header .z-support-btn {
+      display: flex; align-items: center; gap: 7px;
+      border: 1px solid rgba(255,255,255,.14); border-radius: 999px;
+      padding: 9px 15px;
+      color: rgba(255,255,255,.82);
+      background: rgba(255,255,255,.05);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+      cursor: pointer; transition: 0.22s ease;
+      font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 700;
+      text-decoration: none; white-space: nowrap; flex-shrink: 0;
+    }
+    .ztopup-header .z-support-btn svg { width: 17px; height: 17px; flex-shrink: 0; color: var(--z-gold); transition: transform 0.22s ease; }
+    .ztopup-header .z-support-btn:hover {
+      border-color: rgba(255,179,0,.5);
+      background: linear-gradient(180deg, rgba(255,179,0,.14), rgba(255,179,0,.05));
+      color: var(--z-gold);
+      box-shadow: var(--z-gold-glow);
+      transform: translateY(-1px);
+    }
+    .ztopup-header .z-support-btn:hover svg { transform: rotate(-8deg) scale(1.08); }
+    .ztopup-header .z-support-btn:active { transform: translateY(0); }
+
     /* ===== Premium user identity chip ===== */
     .ztopup-header .z-profile-wrap { position: relative; }
     .ztopup-header .z-profile-chip {
@@ -1108,6 +1137,7 @@
       .ztopup-header .z-balance-info { min-width: 60px; }
       .ztopup-header .z-btn-label { display: none; }
       .ztopup-header .z-action-btn { padding: 9px; }
+      .ztopup-header .z-support-btn { padding: 9px 12px; font-size: 12px; }
     }
     /* Mobile + small tablet: hamburger drawer takes over */
     @media (max-width: 900px) {
@@ -1126,6 +1156,11 @@
       .ztopup-header .header { padding: 11px 14px; }
       .ztopup-header .logo-mark { width: 40px; height: 40px; font-size: 22px; border-radius: 12px; }
       .ztopup-header .brand { font-size: 15px; letter-spacing: 0.08em; }
+      .ztopup-header .z-support-btn { padding: 9px 11px; }
+    }
+    @media (max-width: 360px) {
+      .ztopup-header .z-support-btn { padding: 9px; border-radius: 12px; gap: 0; }
+      .ztopup-header .z-support-label { display: none; }
     }
     @media (max-width: 340px) {
       .ztopup-header .brand { display: none; }
